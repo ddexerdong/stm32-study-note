@@ -42,13 +42,13 @@
 
 ## 🔢 关键公式速查
 
-| 公式 | 说明 | 章节 |
+| 公式 | 说明 | 详见 |
 |------|------|------|
-| `T = (PSC+1)(ARR+1) / TIMx_CLK` | 定时器溢出时间 | 03 |
-| `f_PWM = TIMx_CLK / [(PSC+1)(ARR+1)]` | PWM 频率 | 06 |
-| `Duty = CCR / (ARR+1) × 100%` | PWM 占空比 | 06 |
-| `V = ADC值 / 4095 × 3.3` | ADC 读数转电压 | 05 |
-| `R_LED = (VCC - V_LED) / I_LED` | LED 限流电阻 | 02 |
+| `T = (PSC+1)(ARR+1) / TIMx_CLK` | 定时器溢出时间 | [03_中断与定时器](stm32note/03_中断与定时器.md) |
+| `f_PWM = TIMx_CLK / [(PSC+1)(ARR+1)]` | PWM 频率 | [06_定时器PWM](stm32note/06_定时器PWM.md) |
+| `Duty = CCR / (ARR+1) × 100%` | PWM 占空比 | [06_定时器PWM](stm32note/06_定时器PWM.md) |
+| `V = ADC值 / 4095 × 3.3` | ADC 读数转电压 | [05_ADC模数转换](stm32note/05_ADC模数转换.md) |
+| `R_LED = (VCC - V_LED) / I_LED` | LED 限流电阻 | [02_GPIO与传感器](stm32note/02_GPIO与传感器.md) |
 
 ---
 
