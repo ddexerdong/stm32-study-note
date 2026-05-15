@@ -2,245 +2,284 @@
 
 > 覆盖课程：[24]
 >
-> 例程：TIM3 硬件触发 ADC1 采集 STM32 内部温度传感器，printf 输出芯片温度。
+> 例程：TIM3 通过 TRGO 硬件触发 ADC1 采集 STM32 内部温度传感器，串口输出芯片温度。
 
 ---
 
-## 这节课要解决什么问题？
+## 概念
 
-之前 [05 ADC](05_ADC模数转换.md) 学的是在 while(1) 里手动调 `HAL_ADC_Start` 去采一次数据。但这种方式有两个问题：
+### 知识地图
 
-1. **采集间隔不准**：while(1) 循环一圈要多少时间是不确定的，没法做到「每 1ms 精确采一次」
-2. **CPU 要操心触发时机**：什么时候该采、采完了没，CPU 要一直管
+| 名词 | 工程含义 | 常见位置 |
+|------|----------|----------|
+| Update Event | 定时器计数溢出时产生的更新事件 | TIM |
+| TRGO | Trigger Output，定时器对外输出的内部触发信号 | TIM |
+| External Trigger | ADC 不由软件启动，而由外设触发启动 | ADC |
+| External Trigger Edge | 外部触发信号的有效边沿 | ADC |
+| 内部温度传感器 | STM32 芯片内部测温元件，连接 ADC1_IN16 | ADC |
+| V25 | 温度传感器在 25 ℃ 时的典型输出电压 | 数据手册 |
+| Avg_Slope | 温度传感器平均斜率，单位 mV/℃ | 数据手册 |
+| `HAL_MAX_DELAY` | HAL 最大等待时间，常表示不设超时 | HAL |
 
-这节学的就是：**让定时器的硬件信号自动去触发 ADC**，CPU 只管拿结果就行。
+### 本节关键 API
+
+| API | 作用 |
+|-----|------|
+| `HAL_ADCEx_Calibration_Start(&hadc1)` | ADC 校准 |
+| `HAL_ADC_Start(&hadc1)` | 启动 ADC，使其等待外部触发 |
+| `HAL_TIM_Base_Start(&htim3)` | 启动 TIM3，让它产生 TRGO |
+| `HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY)` | 等待一次 ADC 转换完成 |
+| `HAL_ADC_GetValue(&hadc1)` | 读取 ADC 转换结果 |
+| `__io_putchar()` | `printf` 串口重定向 |
 
 ---
 
-## 知识地图（先搞清楚这节课出现了哪些新东西）
+## 本质理解
 
-| 新名词 | 一句话解释 | 在哪出现 |
-|--------|----------|---------|
-| **Update Event（更新事件）** | 定时器 CNT 计到 ARR 归零的那个瞬间 | TIM 内部 |
-| **TRGO（Trigger Output，触发输出）** | TIM 把「Update Event」转换成的一个脉冲信号，可以送给其他外设 | TIM 的输出 |
-| **External Trigger（外部触发）** | ADC 不从软件指令启动，而是等别的硬件发信号来启动 | ADC 的输入 |
-| **内部温度传感器** | STM32 芯片里面自带的一个测温元件，连在 ADC1 通道 16 | ADC1_IN16 |
-| **V25 / Avg_Slope** | 温度传感器的两个出厂参数：25℃ 时输出多少伏、每升高 1℃ 电压变多少 | 数据手册 |
-| **HAL_MAX_DELAY** | 等于 `0xFFFFFFFF`，意思是「一直等，不设超时限制」 | HAL 库常量 |
+之前的 ADC 采样是软件触发：
+
+```text
+CPU 调 HAL_ADC_Start()
+-> ADC 开始转换
+```
+
+本节使用硬件触发：
+
+```text
+TIM3 定时溢出
+-> 产生 Update Event
+-> 通过 TRGO 发给 ADC1
+-> ADC1 开始转换
+```
+
+本质区别：**采样时刻由定时器硬件决定，而不是由 `while(1)` 循环速度决定。**
 
 ---
 
-## 关键原理
+## 工作流程 / 原理
 
-### 一、先理解三个角色
+### 三个角色
 
-```
-┌──────────────────────────────────────────────┐
-│                  STM32 芯片内部                │
-│                                              │
-│   TIM3                    ADC1               │
-│  ┌──────────┐    TRGO    ┌──────────────┐    │
-│  │ CNT 计数  │───信号线──→│  收到触发信号  │    │
-│  │ 到 ARR 后  │  (芯片内  │  开始一次转换  │    │
-│  │ 产生 TRGO │  部连线)  │  转换完设 EOC │    │
-│  └──────────┘           └──────────────┘    │
-│                                              │
-│  温度传感器（内部）──→ ADC1_IN16 通道         │
-└──────────────────────────────────────────────┘
+```text
+TIM3
+  负责精确定时，到点发 TRGO
+
+ADC1
+  等待 TRGO，收到后采集一次
+
+内部温度传感器
+  连接到 ADC1_IN16，提供随芯片温度变化的电压
 ```
 
-- **TIM3** = 一个精确定时器，只管按固定节奏发脉冲（TRGO）
-- **ADC1** = 收到脉冲就去采集一次 IN16（温度传感器通道）
-- **TRGO** = 芯片内部的一条「看不见的线」，把 TIM3 的脉冲送给 ADC1
+芯片内部连接关系：
 
-### 二、TRGO 到底是什么？
-
-之前 [03 中断与定时器](03_中断与定时器.md) 学过，TIM 的 CNT 加到 ARR 后会溢出。那时候我们关心的是「溢出 → 进中断回调」。
-
-但这节课我们不需要进中断，我们关心的是溢出瞬间的**硬件信号**：
-
-```
-CNT: 0 → 1 → 2 → ... → ARR-1 → ARR → 0 (溢出！)
-                                            └→ 这个瞬间 = Update Event
-                                                   └→ 顺便发出一个 TRGO 脉冲
+```text
+TIM3 Update Event
+-> TIM3 TRGO
+-> ADC1 External Trigger
+-> ADC1_IN16 转换
+-> EOC 标志
+-> CPU 读取结果
 ```
 
-> **TRGO = Update Event 的「广播」版本。** TIM 把它从内部信号变成了一个可以送给其他外设的脉冲。
+### TRGO 是什么
 
-CubeMX 里选 `Trigger Output (TRGO) → Update Event` 的意思就是：「每次 CNT 计满溢出时，对外发一个 TRGO 脉冲」。
+定时器计数到 `ARR` 后溢出：
 
-### 三、ADC 的「外部触发」是什么意思？
-
-之前 ADC 的启动方式是在代码里主动调用 `HAL_ADC_Start`，这叫**软件触发**——CPU 说什么时候采就什么时候采。
-
-这节我们给 ADC 换了一种启动方式：**不用 CPU 命令，而是等着 TIM3 的 TRGO 信号来敲门**。
-
-```
-软件触发（之前学的）：
-  CPU 执行 HAL_ADC_Start → ADC 开始转换
-
-外部触发（这节学的）：
-  TIM3 TRGO 脉冲到达 → ADC 开始转换
-  （CPU 不用管触发时机）
+```text
+CNT: 0 -> 1 -> 2 -> ... -> ARR -> 0
+                                  |
+                                  +-> Update Event
+                                      +-> TRGO 脉冲
 ```
 
-CubeMX 里配的 `External Trigger Conversion Source → Timer 3 Trigger Out` 就是告诉 ADC：「你别等 CPU 来指挥，你听 TIM3 的 TRGO 信号」。
+CubeMX 里选择：
 
-### 四、程序运行的完整流程
-
-```
-上电 → 初始化各外设
-    ↓
-① HAL_ADCEx_Calibration_Start  →  校准 ADC 内部电容
-    ↓
-② HAL_ADC_Start                →  启动 ADC，让它进入「等 TRGO 来敲门」的状态
-    ↓
-③ HAL_TIM_Base_Start           →  启动 TIM3，开始发 TRGO 脉冲
-    ↓
-④ HAL_Delay(3000)              →  等 3 秒，让温度传感器稳定下来
-    ↓
-┌─ while(1) ────────────────────────────────────┐
-│                                                │
-│   TIM3 每 1 秒溢出一次 → 发一个 TRGO           │
-│         ↓                                      │
-│   ADC1 收到 TRGO → 转换一次 IN16               │
-│         ↓                                      │
-│   PollForConversion 等到转换完成                │
-│         ↓                                      │
-│   算出温度 → printf                            │
-│         ↓                                      │
-│   回到循环顶部，等下一次 TIM3 溢出               │
-│                                                │
-└────────────────────────────────────────────────┘
+```text
+Trigger Output (TRGO) = Update Event
 ```
 
-### 五、PollForConversion 在这里的角色
+含义：每次定时器溢出，都对外发出一个触发信号。
+
+### ADC 外部触发
+
+ADC 外部触发配置的含义：
+
+```text
+External Trigger Conversion Source = Timer 3 Trigger Out
+External Trigger Conversion Edge   = Rising edge
+```
+
+意思是 ADC 不靠 CPU 一次次启动，而是等待 TIM3 的 TRGO 上升沿。TRGO 来一次，ADC 转换一次。
+
+### 完整运行流程
+
+```text
+上电
+-> HAL_Init()
+-> SystemClock_Config()
+-> MX_GPIO_Init()
+-> MX_ADC1_Init()
+-> MX_TIM3_Init()
+-> MX_USART1_UART_Init()
+-> ADC 校准
+-> 启动 ADC，让 ADC 等 TRGO
+-> 启动 TIM3，让 TIM3 周期性发 TRGO
+-> 等内部温度传感器稳定
+-> while(1) 中等待 ADC 转换完成
+-> 读取 ADC
+-> 换算温度
+-> printf 输出
+```
+
+启动顺序很重要：
+
+```text
+先 ADC 校准
+-> 再 HAL_ADC_Start()
+-> 再 HAL_TIM_Base_Start()
+```
+
+如果先启动 TIM，TRGO 已经发出，但 ADC 还没准备好，会丢掉前几个触发。低频采样影响不大，高频采样时可能造成第一批数据异常。
+
+### `PollForConversion` 在这里的角色
 
 ```c
-if (HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY) == HAL_OK)
+HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 ```
 
-- `HAL_ADC_PollForConversion`：阻塞等待，直到 ADC 完成一次转换（EOC 标志置位）
-- `HAL_MAX_DELAY`：没有超时限制，一直等。因为 TIM3 每 1 秒一定会触发一次，不会等不到
-- 拿到结果后，代码回到 while(1) 顶部，再次调用 `PollForConversion`，等**下一次** TIM3 触发
+这里的 `Poll` 不是软件触发采样，而是 CPU 阻塞等待“这次由 TIM 触发的转换完成”。
 
-> 注意：这里虽然用了「Poll」（轮询）这个词，但触发源是 TIM3 硬件，不是 CPU 在轮询触发。CPU 只是轮询**等待转换完成**。
-
-### 六、内部温度传感器详解
-
-STM32F103C8T6 芯片内部自带一个温度传感器，不需要任何外接电路。
-
-**在哪？** 连在 `ADC1_IN16` 通道上（CubeMX 勾选 Temperature Sensor Channel 就用它）。
-
-**特性：负温度系数（NTC）**
-```
-温度越高 → 传感器输出电压越低
-温度越低 → 传感器输出电压越高
+```text
+TIM 负责触发
+ADC 负责转换
+CPU 负责等待完成和读取结果
 ```
 
-**两个关键参数（来自 STM32 数据手册）：**
+更工程化的高速采样方案通常会用 DMA 或中断，避免 CPU 一直阻塞等待。
+
+### 内部温度传感器
+
+STM32F103 的内部温度传感器连接到 `ADC1_IN16`。
+
+特性：温度越高，输出电压越低。
+
+数据手册典型参数：
 
 | 参数 | 符号 | 典型值 | 含义 |
 |------|------|--------|------|
-| 25℃ 基准电压 | V25 | 1.43V | 芯片 25℃ 时，传感器输出的电压 |
-| 平均斜率 | Avg_Slope | 4.3mV/℃ | 温度每升高 1℃，电压下降 0.0043V |
+| 25 ℃ 电压 | V25 | 1.43 V | 芯片 25 ℃ 时输出电压 |
+| 平均斜率 | Avg_Slope | 4.3 mV/℃ | 温度变化对应电压变化 |
 
-#### 换算公式推导（一步一步来）
+换算：
 
-```
-第 1 步：ADC 读数 → 电压值
-  V_sensor = ADC值 / 4095 × 3.3
+```text
+V_sensor = ADC_Value / 4095 x 3.3
 
-第 2 步：电压值 → 温度（利用 V25 和 Avg_Slope）
-  电压比 25℃ 时低多少 = 1.43 - V_sensor
-  对应温度升高了多少 = (1.43 - V_sensor) / 0.0043
-  当前温度 = 25 + 上面算出来的值
-
-  合并：Temp = (1.43 - V_sensor) / 0.0043 + 25
+Temperature = (1.43 - V_sensor) / 0.0043 + 25
 ```
 
-#### 具体算一个例子
+例：
 
-```
-假设 ADC 读到 1676：
-  V_sensor = 1676 / 4095 × 3.3 = 1.35V
-
-  Temp = (1.43 - 1.35) / 0.0043 + 25
-       = 0.08 / 0.0043 + 25
-       = 18.6 + 25
-       = 43.6℃
+```text
+ADC_Value = 1676
+V_sensor = 1676 / 4095 x 3.3 = 1.35 V
+Temperature = (1.43 - 1.35) / 0.0043 + 25
+            = 43.6 ℃
 ```
 
-> ⚠️ 这是**芯片内部硅片的温度**，不是空气温度。芯片跑程序时会发热，通常比室温高 5~15℃。
->
-> ⚠️ V25 和 Avg_Slope 每个芯片都有细微差异（数据手册给的是典型值），这是正常制造误差。精确测温需要自己标定——不过这节课先不用管，用典型值就行。
+注意：
 
-### 七、为什么要 `HAL_Delay(3000)`？
+- 这是芯片内部硅片温度，不是空气温度。
+- 芯片运行时会发热，通常比室温高 5~15 ℃。
+- V25 和 Avg_Slope 是典型值，精确测温需要单独标定。
 
-```c
-HAL_TIM_Base_Start(&htim3);
-HAL_Delay(3000);  // 等 3 秒
-```
-
-等 3 秒的原因：内部温度传感器在上电后需要一段时间让读数稳定下来。如果启动后立刻采，前几秒的数据可能不准。这和 [05 ADC](05_ADC模数转换.md) 里 MQ 烟雾传感器需要预热是类似的道理。
-
-### 八、为什么要校准 ADC？
-
-```c
-HAL_ADCEx_Calibration_Start(&hadc1);
-```
-
-F103 的 ADC 内部有采样保持电容，出厂时每个芯片的电容值有细微差异。校准就是测量这个差异然后补偿进去。**F103 的 ADC 每次上电后校准一次就行。**
-
-> 如果忘了校准，ADC 读数会有几到几十个 LSB 的偏移（对温度换算影响不算巨大，但能校准就校准）。
-
-### 九、ADC 时钟为什么是 PCLK2/6？
+### ADC 时钟
 
 ```c
 PeriphClkInit.AdcClockSelection = RCC_ADCPCLK2_DIV6;
 ```
 
-| 项目 | 值 |
-|------|-----|
-| PCLK2（APB2 总线时钟） | 72MHz |
-| 分频 | ÷6 |
-| ADC 时钟 | 12MHz |
+常见配置：
 
-F103 的 ADC 时钟不能超过 **14MHz**。72 ÷ 6 = 12，安全。CubeMX 通常会自动配好，但了解一下不会吃亏。
+| 项目 | 值 |
+|------|----|
+| PCLK2 | 72 MHz |
+| ADC 分频 | /6 |
+| ADC_CLK | 12 MHz |
+
+F103 ADC 时钟不能超过 14 MHz，所以 12 MHz 是安全配置。
 
 ---
 
-## CubeMX 配置步骤
+## CubeMX 配置
 
-### TIM3 侧
+### TIM3
 
-1. Timers → **TIM3** → Clock Source: **Internal Clock**
-2. PSC = 7199, ARR = 9999 → 定时 1 秒
-3. **Trigger Output (TRGO) → Update Event** ← 这是这节课的**核心操作**
-   - 含义：TIM3 每次溢出就发一个 TRGO 脉冲给其他外设
-4. NVIC → **不用开**（TRGO 是纯硬件信号，不需要软件中断）
+1. `Timers -> TIM3`。
+2. `Clock Source` 选择 `Internal Clock`。
+3. 配置 1 秒触发一次：
 
-### ADC1 侧
+```text
+PSC = 7199
+ARR = 9999
+TIM3_CLK = 72 MHz
+触发周期 = (7199 + 1) x (9999 + 1) / 72 MHz = 1 s
+```
 
-1. ADC1 → **IN16** → 勾选 **Temperature Sensor Channel**
-   - 这是内部温度传感器专用通道，不需要在芯片引脚上接线
-2. **External Trigger Conversion Source → Timer 3 Trigger Out**
-   - 含义：ADC 不靠 CPU 命令启动，而是等 TIM3 的 TRGO 信号来启动
-3. **External Trigger Conversion Edge → Rising edge**
-   - 含义：TRGO 脉冲的上升沿触发一次转换
-4. Continuous Conversion Mode = **Disable**
-   - TIM 来一次 TRGO 就采一次，不需要 ADC 自己连续采
-5. Scan Conversion Mode = **Disable**（只有一个通道，不用扫描）
+4. `Trigger Output (TRGO)` 选择 `Update Event`。
+5. 不需要打开 TIM3 NVIC，因为 TRGO 是硬件触发，不靠中断。
+
+### ADC1
+
+1. `ADC1` 勾选 `Temperature Sensor Channel`，即内部 `ADC1_IN16`。
+2. `External Trigger Conversion Source` 选择 `Timer 3 Trigger Out`。
+3. `External Trigger Conversion Edge` 选择 `Rising edge`。
+4. `Continuous Conversion Mode` = `Disable`。
+5. `Scan Conversion Mode` = `Disable`。
+6. 采样时间建议设置长一些，例如 `239.5 Cycles`，内部温度传感器也需要较长采样时间。
 
 ### USART1
 
-1. Mode: **Asynchronous**，用于 printf 输出温度值
+1. `USART1` 设置为 `Asynchronous`。
+2. 波特率 `115200`。
+3. 用于 `printf` 输出温度。
 
 ---
 
-## 完整代码
+## HAL 函数 / API
 
-### main.c
+### `HAL_ADC_Start`
+
+```c
+HAL_ADC_Start(&hadc1);
+```
+
+在外部触发模式下，这一步不是立刻采样，而是让 ADC 进入等待触发状态。
+
+### `HAL_TIM_Base_Start`
+
+```c
+HAL_TIM_Base_Start(&htim3);
+```
+
+启动 TIM3 计数。每次溢出时，TIM3 通过 TRGO 触发 ADC。
+
+注意：这里不需要 `_IT`，因为不需要进入 TIM 中断。
+
+### `HAL_ADC_PollForConversion`
+
+```c
+HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
+```
+
+等待 ADC 转换完成。触发来自 TIM3，等待来自 CPU。
+
+---
+
+## 示例代码
+
+### `main.c`
 
 ```c
 #include "main.h"
@@ -248,12 +287,12 @@ F103 的 ADC 时钟不能超过 **14MHz**。72 ÷ 6 = 12，安全。CubeMX 通�
 #include "tim.h"
 #include "usart.h"
 #include "gpio.h"
-#include <stdio.h>          // printf 需要
+#include <stdio.h>
 
 /* USER CODE BEGIN PV */
-uint32_t adc_val = 0;       // 存 ADC 原始读数
-float voltage  = 0.0f;      // 存换算后的电压值
-float tem      = 0.0f;      // 存换算后的温度值
+uint32_t adc_val = 0;
+float voltage = 0.0f;
+float tem = 0.0f;
 /* USER CODE END PV */
 
 int main(void)
@@ -268,37 +307,34 @@ int main(void)
 
     /* USER CODE BEGIN 2 */
 
-    // ① ADC 校准 —— F103 上电必须做一次
     HAL_ADCEx_Calibration_Start(&hadc1);
 
-    // ② 启动 ADC —— ADC 进入「等 TRGO 来敲门」状态
     HAL_ADC_Start(&hadc1);
 
-    // ③ 启动 TIM3 —— 开始计数的同时开始发 TRGO 脉冲
     HAL_TIM_Base_Start(&htim3);
 
-    // ④ 等 3 秒让温度传感器稳定
     HAL_Delay(3000);
 
     /* USER CODE END 2 */
 
     while (1)
     {
-        // 阻塞等待本次 TIM 触发后的 ADC 转换完成
         if (HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY) == HAL_OK)
         {
-            adc_val  = HAL_ADC_GetValue(&hadc1);              // 拿 ADC 原始值
-            voltage  = (float)adc_val / 4095.0f * 3.3f;      // → 电压
-            tem      = (1.43f - voltage) / 0.0043f + 25.0f;  // → 温度
+            adc_val = HAL_ADC_GetValue(&hadc1);
+            voltage = (float)adc_val / 4095.0f * 3.3f;
+            tem = (1.43f - voltage) / 0.0043f + 25.0f;
 
-            printf("The temperature of silicon chip : %f\r\n", tem);
+            printf("ADC=%lu, voltage=%.3f V, chip temperature=%.2f C\r\n",
+                   adc_val,
+                   voltage,
+                   tem);
         }
-        // 循环回到顶部，等下一次 TIM3 触发
     }
 }
 ```
 
-### printf 重定向
+### `printf` 重定向
 
 ```c
 /* USER CODE BEGIN 4 */
@@ -310,34 +346,127 @@ int __io_putchar(int ch)
 /* USER CODE END 4 */
 ```
 
-> `__io_putchar`：CubeIDE 的 printf 底层输出函数。printf 内部每要输出一个字符，就会调用这个函数。我们把字符通过串口发出去，printf 的输出就能在串口助手里看到了。
+如果 `%f` 无法输出，需要在 CubeIDE 链接选项添加：
+
+```text
+-u _printf_float
+```
+
+### 启动顺序模板
+
+```c
+HAL_ADCEx_Calibration_Start(&hadc1);
+HAL_ADC_Start(&hadc1);
+HAL_TIM_Base_Start(&htim3);
+```
+
+记忆方式：
+
+```text
+先校准
+-> 先让 ADC 准备好接收触发
+-> 再让 TIM 开始发触发
+```
 
 ---
 
-## 启动顺序（为什么是这个顺序？）
+## 常见错误
 
-```
-① HAL_ADCEx_Calibration_Start   先校准
-② HAL_ADC_Start                 ADC 进入等待触发状态
-③ HAL_TIM_Base_Start            TIM 才开始发 TRGO
-④ HAL_Delay(3000)               等传感器稳定
-```
-
-> 🔴 ② 和 ③ **不能反过来**。如果先启动 TIM3，TRGO 已经发出来了，但 ADC 还没准备好去收——前几个触发就浪费了。虽然这节定时 1 秒一次影响不大（最多浪费一个），但以后定时间隔很短的场合，顺序反了会出问题。养成习惯就好。
+| 问题 | 常见原因 | 解决方法 |
+|------|----------|----------|
+| ADC 不触发 | TIM3 没配 TRGO | TIM3 `Trigger Output` 选 `Update Event` |
+| ADC 不触发 | ADC 外部触发源没选 TIM3 | ADC `External Trigger` 选 `Timer 3 Trigger Out` |
+| 只采一次或节奏异常 | Continuous 配置和外部触发理解混乱 | TIM 触发模式下关闭 Continuous |
+| 前几次数据异常 | TIM 比 ADC 先启动 | 按校准 -> ADC Start -> TIM Start 顺序 |
+| 温度比室温高 | 正常，测的是芯片硅片温度 | 只当作芯片内部温度参考 |
+| 温度偏差明显 | V25/斜率使用典型值 | 精确测温需标定 |
+| `printf` 不输出 | 串口没配、没重定向、波特率不对 | 检查 USART1 和 `__io_putchar` |
+| `%f` 不显示 | 未启用浮点打印 | 添加 `-u _printf_float` |
+| 程序一直卡在 Poll | TIM 未启动或触发源错误 | 先查 TIM3 TRGO 和 ADC trigger |
 
 ---
 
-## 易错点
+## 调试方法
 
-| 坑 | 原因 | 解决 |
-|----|------|------|
-| ADC 不触发 | TIM3 侧没配 TRGO | CubeMX → TIM3 → Trigger Output 选 Update Event |
-| ADC 不触发 | ADC 侧 Ext Trigger 没选 TIM3 | ADC1 → External Trigger → Timer 3 Trigger Out |
-| 温度值和室温差很多 | **正常现象**，芯片工作发热 | 内部温度 ≈ 室温 + 5~15℃ |
-| 启动后前几条温度不准 | 内部温度传感器需要稳定时间 | 加 `HAL_Delay(3000)` |
-| printf 不输出 | 串口没配好 / 波特率不对 | 检查 USART1 配置，串口助手 115200 |
-| 打印出 `%f` 而不是数字 | 没加浮点数支持 | CubeIDE 链接选项加 `-u _printf_float` |
-| 忘了 include | `#include <stdio.h>` 漏了 | printf 需要 stdio.h |
+1. 先确认 USART1 `printf` 能正常输出。
+2. 单独用软件触发 ADC 读取内部温度传感器，确认 ADC 本身正常。
+3. 再改成 TIM3 外部触发。
+4. 在 `HAL_ADC_PollForConversion()` 后打断点，看是否每秒到达一次。
+5. 若一直不到达，检查 TIM3 是否启动、TRGO 是否配置、ADC trigger 是否选对。
+6. 打印原始 `adc_val` 和 `voltage`，不要只看温度结果。
+
+排查链路：
+
+```text
+USART 输出正常
+-> ADC 校准正常
+-> ADC 软件触发可读
+-> TIM3 周期正确
+-> TRGO = Update Event
+-> ADC Trigger = TIM3 TRGO
+-> 启动顺序正确
+```
+
+---
+
+## 工程意义
+
+TIM 触发 ADC 的意义是：让采样时刻由硬件保证。
+
+适合场景：
+
+- 固定采样率的数据采集。
+- 波形采样。
+- 控制系统周期采样。
+- 多传感器同步采集。
+- 后续配合 DMA 做连续采样。
+
+和软件循环采样相比：
+
+| 方式 | 采样间隔 | CPU 负担 | 工程适用性 |
+|------|----------|----------|------------|
+| `while(1)` 软件触发 | 不稳定 | CPU 控制触发 | 简单实验 |
+| TIM TRGO 触发 | 稳定 | CPU 不管触发时刻 | 工程采样 |
+| TIM TRGO + DMA | 稳定 | CPU 只处理缓冲区 | 高频/连续采样 |
+
+---
+
+## 易混淆点
+
+| 容易混淆 | 正确理解 |
+|----------|----------|
+| TRGO 和中断 | TRGO 是硬件内部触发信号，不需要进中断 |
+| `HAL_TIM_Base_Start` 和 `_Start_IT` | 本节只要 TRGO，不需要 TIM 中断 |
+| ADC Start 和软件触发 | 外部触发模式下 Start 是让 ADC 准备好等触发 |
+| Poll 和触发 | Poll 只是等待转换完成，不负责触发 |
+| Continuous 和外部触发 | 本节 TIM 来一次采一次，Continuous 关闭 |
+| 芯片温度和室温 | 内部温度传感器测的是硅片温度 |
+| V25/Avg_Slope | 数据手册典型值，不是每颗芯片精确值 |
+
+---
+
+## 我的理解
+
+这一章的关键是把“谁触发谁”想清楚。
+
+我现在的理解是：
+
+- TIM3 是节拍器。
+- TRGO 是 TIM3 发出的内部触发信号。
+- ADC1 不再听 CPU 的每次命令，而是听 TIM3 的节拍。
+- CPU 只是等结果、读结果、算结果。
+- 内部温度传感器只是一个练习通道，真正工程里可以换成任意外部模拟信号。
+
+以后做精确定时采样，我会按这个顺序检查：
+
+```text
+TIM 周期算对
+-> TRGO 选对事件
+-> ADC 外部触发源选对
+-> ADC 先启动
+-> TIM 后启动
+-> 需要高效率时再加 DMA
+```
 
 ---
 
