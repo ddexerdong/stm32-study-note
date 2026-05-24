@@ -6,7 +6,18 @@
 
 ---
 
-## 概念
+## 本节目标
+
+完成本节后，应能做到：
+
+- 使用 GPIO 输出控制 LED、蜂鸣器等简单外设。
+- 使用 GPIO 输入读取按键和数字传感器模块。
+- 理解推挽、开漏、上拉、下拉、浮空输入和模拟输入的区别。
+- 掌握按键消抖和数字传感器读取的基本工程写法。
+
+---
+
+## 核心概念
 
 ### 知识地图
 
@@ -218,13 +229,28 @@ LM393 比较器 <- 电位器设定阈值
 
 ### `HAL_GPIO_WritePin`
 
+函数：
+
 ```c
 void HAL_GPIO_WritePin(GPIO_TypeDef *GPIOx,
                        uint16_t GPIO_Pin,
                        GPIO_PinState PinState);
 ```
 
-作用：写指定引脚输出电平。内部主要通过 `BSRR` 寄存器完成置位/复位，避免普通读-改-写带来的竞争问题。
+作用：
+
+- 调用后，指定引脚输出 `SET` 或 `RESET`。
+- 内部主要通过 `BSRR` 寄存器完成置位/复位，避免普通读-改-写带来的竞争问题。
+- 不调用时，输出引脚不会按程序要求改变电平。
+- 适合 LED、蜂鸣器、继电器驱动、模块使能脚等明确高低电平控制。
+
+参数说明：
+
+| 参数 | 说明 |
+|------|------|
+| `GPIOx` | GPIO 端口，例如 `GPIOA`、`GPIOB` |
+| `GPIO_Pin` | GPIO 引脚位掩码，例如 `GPIO_PIN_0` |
+| `PinState` | `GPIO_PIN_SET` 或 `GPIO_PIN_RESET` |
 
 ```c
 HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
@@ -233,11 +259,17 @@ HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 
 ### `HAL_GPIO_TogglePin`
 
+函数：
+
 ```c
 void HAL_GPIO_TogglePin(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin);
 ```
 
-作用：翻转输出电平。
+作用：
+
+- 调用后，指定输出引脚电平翻转。
+- 不调用时，引脚保持原状态。
+- 适合 LED 闪烁和状态指示。
 
 ```c
 HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
@@ -247,11 +279,18 @@ HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
 
 ### `HAL_GPIO_ReadPin`
 
+函数：
+
 ```c
 GPIO_PinState HAL_GPIO_ReadPin(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin);
 ```
 
-作用：读取引脚数字电平，返回 `GPIO_PIN_SET` 或 `GPIO_PIN_RESET`。
+作用：
+
+- 调用后，读取输入引脚当前数字电平。
+- 返回 `GPIO_PIN_SET` 或 `GPIO_PIN_RESET`。
+- 不调用时，程序无法知道按键或数字传感器当前状态。
+- 适合按键、避障模块、循迹模块、比较器模块的 `DO` 输出读取。
 
 ```c
 if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET)
@@ -407,6 +446,24 @@ else
 ```
 
 这里假设 `DO = 0` 表示触发。实际模块必须用万用表或串口打印确认有效电平。
+
+---
+
+## 代码执行流程
+
+```text
+CubeMX 配置 GPIO 模式
+↓
+生成 MX_GPIO_Init()
+↓
+main() 中完成 HAL 和 GPIO 初始化
+↓
+输出类外设：HAL_GPIO_WritePin() / TogglePin()
+↓
+输入类外设：HAL_GPIO_ReadPin()
+↓
+根据电平状态控制 LED、蜂鸣器或业务逻辑
+```
 
 ---
 

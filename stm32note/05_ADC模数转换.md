@@ -6,7 +6,18 @@
 
 ---
 
-## 概念
+## 本节目标
+
+完成本节后，应能做到：
+
+- 理解 ADC 把模拟电压转换成数字值的过程。
+- 使用单通道轮询读取传感器电压。
+- 使用多通道扫描和 DMA 连续采集。
+- 掌握 ADC 原始值、电压值和传感器物理量之间的换算关系。
+
+---
+
+## 核心概念
 
 ### 知识地图
 
@@ -239,30 +250,52 @@ DMA Mode = Circular
 
 ### `HAL_ADC_Start`
 
+函数：
+
 ```c
 HAL_StatusTypeDef HAL_ADC_Start(ADC_HandleTypeDef *hadc);
 ```
 
-启动 ADC。若配置为软件触发，会开始转换；若配置为外部触发，则 ADC 进入等待触发状态。
+作用：
+
+- 调用后，ADC 开始工作。
+- 软件触发模式下会开始转换；外部触发模式下会进入等待触发状态。
+- 不调用时，ADC 不会产生有效转换结果。
+- 适合单通道轮询、外部触发采样和启动 DMA 前的基础理解。
 
 ### `HAL_ADC_PollForConversion`
+
+函数：
 
 ```c
 HAL_StatusTypeDef HAL_ADC_PollForConversion(ADC_HandleTypeDef *hadc,
                                             uint32_t Timeout);
 ```
 
-阻塞等待 EOC 标志。适合简单轮询，不适合高频采集。
+作用：
+
+- 调用后，CPU 阻塞等待 EOC 转换完成标志。
+- 不调用时，可能在 ADC 尚未转换完成时读取旧值。
+- 适合简单轮询，不适合高频采集。
 
 ### `HAL_ADC_GetValue`
+
+函数：
 
 ```c
 uint32_t HAL_ADC_GetValue(ADC_HandleTypeDef *hadc);
 ```
 
-读取当前 ADC 转换结果，返回值范围通常是 0~4095。
+作用：
+
+- 调用后，读取当前 ADC 转换结果。
+- 不调用时，程序无法获得 ADC 数字值。
+- F103 12 位 ADC 返回值通常是 `0~4095`。
+- 适合电压换算、阈值判断和传感器数据读取。
 
 ### `HAL_ADC_Start_DMA`
+
+函数：
 
 ```c
 HAL_StatusTypeDef HAL_ADC_Start_DMA(ADC_HandleTypeDef *hadc,
@@ -270,7 +303,13 @@ HAL_StatusTypeDef HAL_ADC_Start_DMA(ADC_HandleTypeDef *hadc,
                                     uint32_t Length);
 ```
 
-参数：
+作用：
+
+- 调用后，ADC 转换结果由 DMA 自动搬到缓冲区。
+- 不调用时，DMA 不会更新 ADC 数组。
+- 适合多通道连续采集和高频采样。
+
+参数说明：
 
 - `hadc`：ADC 句柄，例如 `&hadc1`。
 - `pData`：目标缓冲区地址。
@@ -376,6 +415,28 @@ printf("MQ voltage = %.2f V\r\n", mqVoltage);
 ```
 
 浓度换算需查对应型号数据手册的 `Rs/R0` 曲线，不能直接套一个通用线性公式。
+
+---
+
+## 代码执行流程
+
+```text
+CubeMX 配置 ADC 通道、采样时间和 DMA
+↓
+main() 初始化 GPIO、ADC、DMA
+↓
+F103 上电后先执行 ADC 校准
+↓
+轮询模式：HAL_ADC_Start()
+↓
+HAL_ADC_PollForConversion() 等待 EOC
+↓
+HAL_ADC_GetValue() 读取原始值
+↓
+DMA 模式：HAL_ADC_Start_DMA() 启动连续搬运
+↓
+主循环读取缓冲区最新 ADC 值并换算电压/物理量
+```
 
 ---
 

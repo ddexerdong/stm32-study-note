@@ -6,7 +6,18 @@
 
 ---
 
-## 概念
+## 本节目标
+
+完成本节后，应能做到：
+
+- 理解 TIM 通过 TRGO 硬件触发 ADC 的流程。
+- 配置 TIM3 周期性产生 Update Event。
+- 配置 ADC1 等待外部触发并采集内部温度传感器。
+- 用串口输出 ADC 原始值、电压和温度换算结果。
+
+---
+
+## 核心概念
 
 ### 知识地图
 
@@ -251,29 +262,50 @@ TIM3_CLK = 72 MHz
 
 ### `HAL_ADC_Start`
 
+函数：
+
 ```c
 HAL_ADC_Start(&hadc1);
 ```
 
-在外部触发模式下，这一步不是立刻采样，而是让 ADC 进入等待触发状态。
+作用：
+
+- 调用后，ADC 进入工作状态。
+- 在外部触发模式下，这一步不是立刻采样，而是让 ADC 进入等待触发状态。
+- 不调用时，TIM3 发出 TRGO 后 ADC 也不会按预期完成转换。
+- 使用场景：TIM 触发 ADC、软件触发 ADC、ADC DMA 启动前准备。
 
 ### `HAL_TIM_Base_Start`
+
+函数：
 
 ```c
 HAL_TIM_Base_Start(&htim3);
 ```
 
-启动 TIM3 计数。每次溢出时，TIM3 通过 TRGO 触发 ADC。
+作用：
+
+- 调用后，TIM3 开始计数。
+- 每次溢出时，TIM3 通过 TRGO 触发 ADC。
+- 不调用时，TRGO 不会产生，ADC 会一直等触发。
+- 使用场景：只需要定时器硬件运行，不需要进入 TIM 中断。
 
 注意：这里不需要 `_IT`，因为不需要进入 TIM 中断。
 
 ### `HAL_ADC_PollForConversion`
 
+函数：
+
 ```c
 HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 ```
 
-等待 ADC 转换完成。触发来自 TIM3，等待来自 CPU。
+作用：
+
+- 调用后，CPU 等待 ADC 转换完成。
+- 触发来自 TIM3，等待来自 CPU。
+- 不调用时，程序可能在转换没完成时读取旧数据。
+- 使用场景：低频采样、教学验证、需要确认每次转换完成后再读取。
 
 ---
 
@@ -366,6 +398,32 @@ HAL_TIM_Base_Start(&htim3);
 先校准
 -> 先让 ADC 准备好接收触发
 -> 再让 TIM 开始发触发
+```
+
+---
+
+## 代码执行流程
+
+```text
+CubeMX 配置 TIM3 TRGO = Update Event
+↓
+CubeMX 配置 ADC1 External Trigger = TIM3 TRGO
+↓
+main() 初始化 ADC、TIM、USART
+↓
+HAL_ADCEx_Calibration_Start() 执行 ADC 校准
+↓
+HAL_ADC_Start() 让 ADC 等待外部触发
+↓
+HAL_TIM_Base_Start() 启动 TIM3
+↓
+TIM3 溢出产生 TRGO
+↓
+ADC1 被硬件触发并完成转换
+↓
+HAL_ADC_PollForConversion() 等待 EOC
+↓
+HAL_ADC_GetValue() 读取结果并换算温度
 ```
 
 ---

@@ -6,7 +6,18 @@
 
 ---
 
-## 概念
+## 本节目标
+
+完成本节后，应能做到：
+
+- 理解 PWM 的频率、周期、占空比和脉宽。
+- 使用 TIM 输出 PWM 信号。
+- 通过修改 CCR 控制舵机角度和 LED 亮度。
+- 区分通用定时器和高级定时器的典型用途。
+
+---
+
+## 核心概念
 
 ### 知识地图
 
@@ -210,12 +221,18 @@ PWM = 1 kHz
 
 ### `HAL_TIM_PWM_Start`
 
+函数：
+
 ```c
 HAL_StatusTypeDef HAL_TIM_PWM_Start(TIM_HandleTypeDef *htim,
                                     uint32_t Channel);
 ```
 
-作用：启动指定定时器通道的 PWM 输出。
+作用：
+
+- 调用后，指定 TIM 通道开始输出 PWM。
+- 不调用时，CubeMX 虽然完成初始化，但引脚不会真正输出 PWM 波形。
+- 适合舵机控制、LED 调光、电机调速等场景。
 
 ```c
 HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
@@ -225,13 +242,20 @@ HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
 
 ### `__HAL_TIM_SET_COMPARE`
 
+函数：
+
 ```c
 __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 1500);
 ```
 
-作用：动态写入 CCR，改变占空比或脉宽。
+作用：
 
-参数：
+- 调用后，指定通道的 `CCR` 会被改写。
+- PWM 输出的占空比或脉宽随之改变。
+- 不调用时，PWM 会一直保持初始化时的占空比。
+- 适合实时改变 LED 亮度、舵机角度或电机占空比。
+
+参数说明：
 
 - `&htim3`：定时器句柄。
 - `TIM_CHANNEL_1`：通道。
@@ -345,6 +369,26 @@ while (1)
     Breath_Task();
     // 其他任务可以继续运行
 }
+```
+
+---
+
+## 代码执行流程
+
+```text
+CubeMX 配置 TIM PWM 通道
+↓
+main() 初始化 GPIO 和 TIM
+↓
+HAL_TIM_PWM_Start() 启动 PWM 输出
+↓
+TIM 从 0 计数到 ARR
+↓
+CNT 与 CCR 比较后自动改变输出电平
+↓
+修改 CCR 改变占空比或脉宽
+↓
+外设表现为 LED 亮度变化或舵机角度变化
 ```
 
 ---

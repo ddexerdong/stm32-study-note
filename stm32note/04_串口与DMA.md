@@ -6,7 +6,18 @@
 
 ---
 
-## 概念
+## 本节目标
+
+完成本节后，应能做到：
+
+- 使用 USART 完成基本发送、阻塞接收和中断接收。
+- 完成 `printf` 串口重定向。
+- 理解 DMA 自动搬运数据的本质。
+- 使用 IDLE + DMA 处理串口不定长数据帧。
+
+---
+
+## 核心概念
 
 ### 知识地图
 
@@ -253,6 +264,8 @@ __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
 
 ### `HAL_UART_Transmit`
 
+函数：
+
 ```c
 HAL_StatusTypeDef HAL_UART_Transmit(UART_HandleTypeDef *huart,
                                     const uint8_t *pData,
@@ -260,7 +273,13 @@ HAL_StatusTypeDef HAL_UART_Transmit(UART_HandleTypeDef *huart,
                                     uint32_t Timeout);
 ```
 
-参数：
+作用：
+
+- 调用后，CPU 阻塞发送指定长度的数据。
+- 不调用时，串口不会主动输出调试信息或业务数据。
+- 适合少量调试输出、简单回显和教学验证。
+
+参数说明：
 
 - `huart`：串口句柄，如 `&huart1`。
 - `pData`：待发送数据首地址。
@@ -271,6 +290,8 @@ F1 的 USART 数据寄存器叫 `DR`，不是新系列里常见的 `TDR/RDR` 命
 
 ### `HAL_UART_Receive`
 
+函数：
+
 ```c
 HAL_StatusTypeDef HAL_UART_Receive(UART_HandleTypeDef *huart,
                                    uint8_t *pData,
@@ -278,9 +299,15 @@ HAL_StatusTypeDef HAL_UART_Receive(UART_HandleTypeDef *huart,
                                    uint32_t Timeout);
 ```
 
-阻塞等待收到指定字节数或超时，教学验证可以用，工程里避免长时间死等。
+作用：
+
+- 调用后，CPU 阻塞等待收到指定字节数或超时。
+- 不调用时，程序不会主动读取串口输入。
+- 适合简单验证，工程里避免长时间死等。
 
 ### `HAL_UART_Receive_IT`
+
+函数：
 
 ```c
 HAL_StatusTypeDef HAL_UART_Receive_IT(UART_HandleTypeDef *huart,
@@ -288,9 +315,18 @@ HAL_StatusTypeDef HAL_UART_Receive_IT(UART_HandleTypeDef *huart,
                                       uint16_t Size);
 ```
 
-调用后立即返回。收满 `Size` 字节后进入 `HAL_UART_RxCpltCallback()`。回调里必须重新启动下一次接收。
+作用：
+
+- 调用后立即返回，USART 在后台接收指定长度数据。
+- 收满 `Size` 字节后进入 `HAL_UART_RxCpltCallback()`。
+- 不调用时，串口接收完成回调不会触发。
+- 适合定长命令、单字节命令和简单协议。
+
+注意：回调里必须重新启动下一次接收，否则只接收一次。
 
 ### `HAL_UART_Receive_DMA`
+
+函数：
 
 ```c
 HAL_StatusTypeDef HAL_UART_Receive_DMA(UART_HandleTypeDef *huart,
@@ -298,15 +334,27 @@ HAL_StatusTypeDef HAL_UART_Receive_DMA(UART_HandleTypeDef *huart,
                                        uint16_t Size);
 ```
 
-启动 DMA 接收。DMA 会自动把串口收到的数据搬到 `pData` 指向的缓冲区。
+作用：
+
+- 调用后，DMA 会自动把串口收到的数据搬到 `pData` 指向的缓冲区。
+- 不调用时，DMA 不会搬运串口接收数据。
+- 适合连续数据流、大量数据和 IDLE + DMA 不定长接收。
 
 ### `__HAL_DMA_GET_COUNTER`
+
+函数：
 
 ```c
 uint16_t remain = __HAL_DMA_GET_COUNTER(huart1.hdmarx);
 ```
 
-读取 DMA 剩余搬运次数。已接收长度：
+作用：
+
+- 调用后，读取 DMA 当前剩余搬运次数。
+- 不调用时，不容易计算不定长接收已经收了多少字节。
+- 常用于 IDLE 中断中计算本帧长度。
+
+已接收长度：
 
 ```c
 rxLen = RX_BUF_SIZE - __HAL_DMA_GET_COUNTER(huart1.hdmarx);
@@ -552,6 +600,28 @@ STM32F103C8T6 常见串口：
 ```
 
 GPS、雷达、蓝牙、传感器模块都可能采用类似“帧头 + 长度 + 数据 + 校验”的协议，但具体格式必须查模块手册。
+
+---
+
+## 代码执行流程
+
+```text
+CubeMX 配置 USART / DMA / NVIC
+↓
+main() 初始化 GPIO、USART、DMA
+↓
+发送：HAL_UART_Transmit() 或 printf()
+↓
+定长接收：HAL_UART_Receive_IT() 启动一次接收
+↓
+收满后进入 HAL_UART_RxCpltCallback()
+↓
+回调中处理数据并重新启动下一次接收
+↓
+不定长接收：DMA 持续搬运，IDLE 中断判断一帧结束
+↓
+CPU 根据 DMA 剩余计数计算本帧长度
+```
 
 ---
 
