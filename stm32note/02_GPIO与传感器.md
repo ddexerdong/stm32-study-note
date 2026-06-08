@@ -558,6 +558,377 @@ GPIO 这一章真正要练的是“硬件状态”和“代码判断”之间的
 
 ---
 
+## [9] GPIO输出与点灯
+
+### 实验目标
+
+用一个 GPIO 输出高低电平，控制 LED 亮灭，确认“CubeMX 配引脚 -> HAL 写电平 -> 硬件响应”这条最基础链路。
+
+### 输入 / 输出关系
+
+| 项目 | 含义 |
+|------|------|
+| 输入 | 程序里的开灯/关灯逻辑 |
+| 输出 | GPIO 引脚输出高电平或低电平 |
+| 观察 | LED 亮灭是否符合预期 |
+
+LED 可能是高电平点亮，也可能是低电平点亮，以实际开发板原理图和 CubeMX 配置为准。
+
+### CubeMX 配置要点
+
+1. 选择 LED 所在 GPIO 引脚。
+2. 配置为 `GPIO_Output`。
+3. 设置默认输出电平，避免上电瞬间误亮或误灭。
+4. 设置合适的 GPIO Speed，普通 LED 使用低速或中速即可。
+5. 生成工程后，业务代码写在 `Core/Src/main.c` 的 USER CODE 区域。
+
+### 最小业务逻辑
+
+常见位置：`Core/Src/main.c`
+
+```c
+while (1)
+{
+    HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+    HAL_Delay(500);
+    HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+    HAL_Delay(500);
+}
+```
+
+### 调试观察点
+
+- 先看 LED 是否接到你配置的那个 GPIO。
+- 再看 LED 是高电平亮还是低电平亮。
+- 用万用表量 GPIO 输出电压，比只看 LED 更可靠。
+- 如果程序能下载但 LED 不动，先确认 `MX_GPIO_Init()` 是否被调用。
+
+### 常见坑
+
+- 把 LED 有效电平理解反。
+- CubeMX 配了 A 引脚，杜邦线接到 B 引脚。
+- USER CODE 写到会被 CubeMX 覆盖的位置。
+
+## [10] 基础延时与三个流水灯
+
+### 实验目标
+
+理解 `HAL_Delay()` 依赖 SysTick 毫秒节拍，用三个 GPIO 做顺序亮灭，形成最简单的流水灯。
+
+### 输入 / 输出关系
+
+| 项目 | 含义 |
+|------|------|
+| 输入 | 主循环中的顺序执行逻辑和延时时间 |
+| 输出 | 三个 GPIO 依次翻转 |
+| 观察 | 三个 LED 是否按固定节奏流动 |
+
+### CubeMX 配置要点
+
+1. 配置三个 LED 对应 GPIO 为输出模式。
+2. 保持 HAL 默认 SysTick 时基，不要随意关闭全局中断。
+3. 确认系统时钟配置正常，否则延时节奏会异常。
+4. 生成工程后，在主循环 USER CODE 区域写流水灯逻辑。
+
+### 最小业务逻辑
+
+常见位置：`Core/Src/main.c`
+
+```c
+while (1)
+{
+    HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, GPIO_PIN_RESET);
+    HAL_Delay(200);
+
+    HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, GPIO_PIN_RESET);
+    HAL_Delay(200);
+
+    HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED2_GPIO_Port, LED2_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, GPIO_PIN_SET);
+    HAL_Delay(200);
+}
+```
+
+### 调试观察点
+
+- 单独点亮每个 LED，确认三路接线没交叉。
+- 调大延时到 1000 ms，先用肉眼确认顺序。
+- 如果所有 LED 都不亮，回到 `[9]` 单灯实验排查。
+
+### 常见坑
+
+- 三个灯的宏名和实际接线顺序对不上。
+- `HAL_Delay()` 放在中断回调里导致系统卡顿。
+- LED 有效电平不同，导致看起来顺序反了。
+
+## [11] GPIO输入与按键开关灯
+
+### 实验目标
+
+读取按键输入电平，并在确认一次有效按下后切换 LED 状态。
+
+### 输入 / 输出关系
+
+| 项目 | 含义 |
+|------|------|
+| 输入 | 按键引脚电平变化 |
+| 输出 | LED 状态切换 |
+| 观察 | 按一次按键，LED 只改变一次 |
+
+按键是上拉输入还是下拉输入，以实际开发板原理图和 CubeMX 配置为准。
+
+### CubeMX 配置要点
+
+1. LED 引脚配置为 GPIO 输出。
+2. 按键引脚配置为 GPIO 输入。
+3. 根据硬件选择 Pull-up、Pull-down 或 No pull。
+4. 生成工程后，在主循环里做轮询和消抖。
+
+### 最小业务逻辑
+
+常见位置：`Core/Src/main.c`
+
+```c
+uint8_t led_state = 0;
+
+while (1)
+{
+    if (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == GPIO_PIN_RESET)
+    {
+        HAL_Delay(20);
+        if (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == GPIO_PIN_RESET)
+        {
+            led_state = !led_state;
+            HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin,
+                              led_state ? GPIO_PIN_SET : GPIO_PIN_RESET);
+
+            while (HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == GPIO_PIN_RESET)
+            {
+                HAL_Delay(5);
+            }
+        }
+    }
+}
+```
+
+### 调试观察点
+
+- 先打印或断点观察按键未按、按下时的电平。
+- 如果按一次变多次，优先检查消抖和松手等待。
+- 如果完全无反应，确认 GPIO 输入上下拉和实际接线。
+
+### 常见坑
+
+- 有效电平写反。
+- 没有消抖，按一次触发多次。
+- 按键悬空，输入电平随机跳动。
+
+## [13] 光敏传感器触发LED灯
+
+### 实验目标
+
+把光敏模块的数字输出接到 STM32 GPIO，读取 DO 电平后控制 LED。
+
+### 输入 / 输出关系
+
+| 项目 | 含义 |
+|------|------|
+| 输入 | 光敏模块 DO 高低电平 |
+| 输出 | LED 亮灭 |
+| 观察 | 遮光或照光时 LED 状态变化 |
+
+如果模块是 LM393 比较器数字输出，本质是模块内部把模拟光照变化和阈值比较后输出 DO。DO 的有效电平不写死，以实际开发板原理图和 CubeMX 配置为准。
+
+### CubeMX 配置要点
+
+1. 传感器 DO 引脚配置为 GPIO 输入。
+2. LED 引脚配置为 GPIO 输出。
+3. 根据模块输出方式选择是否开启内部上拉。
+4. 如果模块还有 AO，本节只使用 DO；AO 应归到 ADC 章节。
+
+### 最小业务逻辑
+
+常见位置：`Core/Src/main.c`
+
+```c
+while (1)
+{
+    GPIO_PinState sensor_state = HAL_GPIO_ReadPin(LIGHT_DO_GPIO_Port, LIGHT_DO_Pin);
+
+    if (sensor_state == GPIO_PIN_SET)
+    {
+        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+    }
+    else
+    {
+        HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+    }
+}
+```
+
+### 调试观察点
+
+- 先看模块电源指示灯和比较器输出指示灯。
+- 调节模块电位器，让 DO 在遮光/照光时有明显翻转。
+- 用串口打印 DO 状态，确认不是 LED 有效电平造成误判。
+
+### 常见坑
+
+- 把 AO 当 DO 接到普通 GPIO。
+- LM393 模块有效电平判断反。
+- 阈值电位器没有调到合适位置。
+
+## [14] 反射传感器触发LED灯
+
+### 实验目标
+
+读取反射传感器数字输出，用 LED 显示是否检测到反射目标。
+
+### 输入 / 输出关系
+
+| 项目 | 含义 |
+|------|------|
+| 输入 | 反射传感器 DO 电平 |
+| 输出 | LED 亮灭或翻转 |
+| 观察 | 放入/移开反射物时输出变化 |
+
+反射传感器受距离、表面颜色、环境光影响明显，有效电平以实际模块和 CubeMX 配置为准。
+
+### CubeMX 配置要点
+
+1. DO 接入 GPIO 输入。
+2. LED 接入 GPIO 输出。
+3. 若模块输出抖动明显，业务层增加连续多次确认。
+4. 不确定模块输出形式时，先用万用表或串口打印确认电平。
+
+### 最小业务逻辑
+
+常见位置：`Core/Src/main.c`
+
+```c
+while (1)
+{
+    GPIO_PinState reflect_state = HAL_GPIO_ReadPin(REFLECT_DO_GPIO_Port, REFLECT_DO_Pin);
+    HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, reflect_state);
+    HAL_Delay(10);
+}
+```
+
+### 调试观察点
+
+- 改变目标距离，观察 DO 是否翻转。
+- 换黑色/白色目标，确认反射强弱对结果的影响。
+- 如果输出频繁跳变，降低灵敏度或增加软件滤波。
+
+### 常见坑
+
+- 模块太靠近或太远导致一直同一电平。
+- 环境光干扰导致误触发。
+- 忘记模块和 STM32 共地。
+
+## [15] 热敏传感器触发蜂鸣器
+
+### 实验目标
+
+读取热敏模块数字输出，当温度条件达到模块阈值时驱动蜂鸣器。
+
+### 输入 / 输出关系
+
+| 项目 | 含义 |
+|------|------|
+| 输入 | 热敏模块 DO 电平 |
+| 输出 | 蜂鸣器打开或关闭 |
+| 观察 | 温度变化或阈值调节后蜂鸣器状态变化 |
+
+热敏 DO 只表示“超过/低于模块比较阈值”，不等于真实温度值。要读真实温度趋势，应使用 AO + ADC 或专用数字温度传感器。
+
+### CubeMX 配置要点
+
+1. 热敏 DO 配置为 GPIO 输入。
+2. 蜂鸣器控制引脚配置为 GPIO 输出。
+3. 蜂鸣器如果通过三极管或驱动模块控制，有效电平以实际开发板原理图和 CubeMX 配置为准。
+4. 业务层可加短延时滤波，避免阈值附近抖动。
+
+### 最小业务逻辑
+
+常见位置：`Core/Src/main.c`
+
+```c
+while (1)
+{
+    GPIO_PinState temp_alarm = HAL_GPIO_ReadPin(TEMP_DO_GPIO_Port, TEMP_DO_Pin);
+    HAL_GPIO_WritePin(BEEP_GPIO_Port, BEEP_Pin, temp_alarm);
+    HAL_Delay(20);
+}
+```
+
+### 调试观察点
+
+- 先单独控制蜂鸣器，确认输出有效电平。
+- 再打印热敏 DO，确认阈值变化。
+- 如果蜂鸣器一直响，先反转逻辑验证是否有效电平写反。
+
+### 常见坑
+
+- 把热敏 DO 当作温度数值。
+- 蜂鸣器电流过大，直接由 GPIO 驱动不可靠。
+- 温度变化慢，误以为程序没运行。
+
+## [16] 火焰传感器触发蜂鸣器
+
+### 实验目标
+
+读取火焰传感器数字输出，在检测条件满足时驱动蜂鸣器报警。
+
+### 输入 / 输出关系
+
+| 项目 | 含义 |
+|------|------|
+| 输入 | 火焰传感器 DO 电平 |
+| 输出 | 蜂鸣器报警 |
+| 观察 | 安全测试条件下 DO 和蜂鸣器是否联动 |
+
+安全提醒：本实验只做低风险教学测试，避免真实明火靠近易燃物。可以优先用安全光源或课程推荐方式验证，以实际开发板原理图、模块资料和视频演示为准。
+
+### CubeMX 配置要点
+
+1. 火焰传感器 DO 配置为 GPIO 输入。
+2. 蜂鸣器引脚配置为 GPIO 输出。
+3. 先确认模块供电、电平兼容和共地。
+4. 不确定有效电平时，先串口打印 DO，不要直接让蜂鸣器长时间报警。
+
+### 最小业务逻辑
+
+常见位置：`Core/Src/main.c`
+
+```c
+while (1)
+{
+    GPIO_PinState flame_state = HAL_GPIO_ReadPin(FLAME_DO_GPIO_Port, FLAME_DO_Pin);
+    HAL_GPIO_WritePin(BEEP_GPIO_Port, BEEP_Pin, flame_state);
+    HAL_Delay(20);
+}
+```
+
+### 调试观察点
+
+- 先确认蜂鸣器可以被 GPIO 单独控制。
+- 再确认火焰模块 DO 是否会随测试条件变化。
+- 如果室内光源导致误触发，调整阈值并记录环境条件。
+
+### 常见坑
+
+- 用危险明火做实验。
+- 火焰模块有效电平判断反。
+- 只看蜂鸣器，不先确认传感器 DO 的真实电平。
+
+---
+
 *课程：[9] [10] [11] [12] [13] [14] [15] [16]*
 
 ---

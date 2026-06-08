@@ -536,6 +536,296 @@ ADC 不是“直接测温度/测光照”，它只是在测电压。
 
 ---
 
+## [21-1] ADC单通道采集电位器应用（轮询）
+
+### 实验目标
+
+用 ADC 单通道轮询读取电位器输出的模拟电压，并换算成电压值。
+
+### 核心理解
+
+电位器本质上是可调分压器，输出给 ADC 的是一个连续模拟电压。ADC 读到的是 0~4095 的原始值，显示给人看时再按参考电压换算。
+
+### 轮询流程
+
+```text
+HAL_ADC_Start
+-> HAL_ADC_PollForConversion
+-> HAL_ADC_GetValue
+-> Raw / 4095.0 * Vref
+```
+
+电压公式：
+
+```text
+Voltage = Raw / 4095.0 * Vref
+```
+
+### 最小代码
+
+常见位置：`Core/Src/main.c`
+
+```c
+uint32_t adc_raw;
+float adc_voltage;
+
+while (1)
+{
+    HAL_ADC_Start(&hadc1);
+    if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+    {
+        adc_raw = HAL_ADC_GetValue(&hadc1);
+        adc_voltage = (float)adc_raw / 4095.0f * 3.3f;
+    }
+    HAL_ADC_Stop(&hadc1);
+    HAL_Delay(100);
+}
+```
+
+### 调试观察点
+
+- 用万用表量电位器中间脚电压，再和 ADC 换算值对比。
+- 电位器两端供电和 ADC 参考电压要一致或可解释。
+- 如果读数跳动大，先放慢采样并观察电源噪声。
+
+### 常见坑
+
+- 忘记 ADC 校准。
+- 把 ADC 原始值当成电压。
+- 电位器接线端和滑动端接反，导致调节方向和预期相反。
+
+## [21-2] ADC多通道采集热敏、光敏、反射传感器（轮询）
+
+### 实验目标
+
+用规则组扫描多个 ADC 通道，轮询读取热敏、光敏、反射等模拟传感器的 AO 电压。
+
+### 核心理解
+
+多个模拟传感器对应多个 ADC 通道，Rank 顺序决定读取顺序。轮询方式适合低速验证，不适合高频连续采样。
+
+热敏、光敏、反射传感器的模拟量含义和电路有关，不要写死为温度、亮度或距离的线性关系，以实际模块资料为准。
+
+### CubeMX 配置要点
+
+1. ADC 开启 Scan Conversion Mode。
+2. 把多个通道加入规则组。
+3. 确认 Rank 顺序。
+4. 每个通道采样时间按信号源阻抗选择。
+5. 初学轮询验证时，关闭 DMA，先看原始值和电压。
+
+### 多通道轮询框架
+
+常见位置：`Core/Src/main.c`
+
+```c
+#define ADC_CH_COUNT 3
+
+uint32_t adc_raw[ADC_CH_COUNT];
+
+while (1)
+{
+    HAL_ADC_Start(&hadc1);
+
+    for (uint8_t i = 0; i < ADC_CH_COUNT; i++)
+    {
+        if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+        {
+            adc_raw[i] = HAL_ADC_GetValue(&hadc1);
+        }
+    }
+
+    HAL_ADC_Stop(&hadc1);
+    HAL_Delay(100);
+}
+```
+
+### 调试观察点
+
+- 记录 `adc_raw[0] = Rank 1`，不要只记传感器名字。
+- 单独改变一个传感器输入，确认变化出现在预期数组下标。
+- 如果通道串扰明显，增加采样时间或检查源阻抗。
+
+### 常见坑
+
+- Rank 和数组下标对不上。
+- 多通道只读取了一次 `HAL_ADC_GetValue()`。
+- 把 AO 接到普通 GPIO，而不是 ADC 通道。
+
+## [21-3] ADC多通道采集雨量、土壤湿度传感器（中断+注入）
+
+> 视频待核对：雨量、土壤湿度模块接线、ADC 通道、规则组/注入组配置、触发方式和回调处理流程。
+
+### 实验定位
+
+这是视频依赖项。PDF 的 ADC 章节能支撑规则组、注入组和中断概念，但不能直接给出课程模块接线和 CubeMX 具体参数。
+
+### 核心理解
+
+规则组是常规采样序列，注入组是高优先级采样序列。中断方式适合“转换完成后自动进入回调处理”，但具体触发源、采样顺序和结果读取方式必须按课程配置核对。
+
+雨量、土壤湿度模块如果输出 AO，本质仍是模拟电压；这个电压和真实湿度/雨量之间的关系需要模块资料或课程标定。
+
+### 保守流程
+
+```text
+配置规则组通道
+-> 配置注入组通道
+-> 启动 ADC 中断
+-> 转换完成进入回调
+-> 读取规则组或注入组结果
+-> 主循环使用最新值
+```
+
+### 最小框架
+
+常见位置：`Core/Src/main.c`
+
+```c
+volatile uint32_t adc_regular_value;
+volatile uint32_t adc_injected_value;
+volatile uint8_t adc_value_ready = 0;
+
+void Adc_StartExample(void)
+{
+    HAL_ADC_Start_IT(&hadc1);
+    /* 视频待核对：注入组启动函数和触发方式。 */
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+    if (hadc->Instance == ADC1)
+    {
+        adc_regular_value = HAL_ADC_GetValue(hadc);
+        adc_value_ready = 1;
+    }
+}
+```
+
+### 调试观察点
+
+- 先用轮询确认每个 AO 通道能读到合理电压。
+- 再加入中断和注入组，不要一次把所有配置打开。
+- 回调里只保存结果和标志位，复杂换算放主循环。
+
+### 常见坑
+
+- 把规则组和注入组结果读取 API 混用。
+- 不知道触发源来自软件、定时器还是外部事件。
+- 模块输出电压范围超过 ADC 输入范围。
+
+## [21-4] ADC多通道采集空气、烟雾传感器（DMA传输）
+
+### 实验目标
+
+用 ADC + DMA 连续采集空气、烟雾等模拟模块的 AO 电压，并按 Rank 顺序放入缓冲区。
+
+### 核心理解
+
+ADC + DMA 适合连续多通道采样。ADC 每转换完一个通道，DMA 自动把数据寄存器搬到数组里，CPU 不需要每次轮询。
+
+空气 / 烟雾模块如果输出 AO，本质还是模拟电压；具体浓度或等级换算留到 `[21-5]`，不能直接在本节写死公式。
+
+### CubeMX 配置要点
+
+1. ADC 开启 Scan Conversion Mode。
+2. 配置多个规则组 Rank。
+3. ADC DMA Continuous Requests 按实验需要开启。
+4. DMA 模式通常用 Circular 做连续刷新。
+5. 生成工程后，启动函数写在 `Core/Src/main.c` USER CODE 区域。
+
+### DMA 缓冲区框架
+
+常见位置：`Core/Src/main.c`
+
+```c
+#define ADC_DMA_CH_COUNT 2
+
+uint16_t adc_dma_buf[ADC_DMA_CH_COUNT];
+
+void AdcDma_Start(void)
+{
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)adc_dma_buf, ADC_DMA_CH_COUNT);
+}
+
+while (1)
+{
+    float air_voltage = (float)adc_dma_buf[0] / 4095.0f * 3.3f;
+    float smoke_voltage = (float)adc_dma_buf[1] / 4095.0f * 3.3f;
+
+    (void)air_voltage;
+    (void)smoke_voltage;
+    HAL_Delay(200);
+}
+```
+
+### 调试观察点
+
+- 明确 `adc_dma_buf[0]` 对应 Rank 1。
+- DMA 长度必须等于本轮采样通道数量。
+- 如果数组一直为 0，检查 `HAL_ADC_Start_DMA()` 是否真的调用成功。
+
+### 常见坑
+
+- ADC Rank 和 DMA 数组下标错位。
+- DMA buffer 长度填错。
+- 在局部函数里定义 DMA buffer，导致生命周期不稳定。
+
+## [21-5] 空气、烟雾传感器公式换算
+
+> 视频待核对：课程使用的空气/烟雾传感器型号、负载电阻、R0 标定方法、公式参数和单位。
+
+### 实验定位
+
+这是视频和模块资料依赖项。不能凭空补完整实验，也不能给没有来源的浓度公式系数。
+
+### 核心理解
+
+空气 / 烟雾传感器不应直接用固定线性公式。常见 MQ 类传感器通常需要预热、基准电阻、`Rs/R0`、曲线或拟合参数。ADC 只能给电压，后面的物理量换算取决于模块电路和传感器手册。
+
+### 保守换算流程
+
+```text
+ADC 原始值
+-> 电压
+-> 根据模块电路反推传感器电阻或输出比例
+-> 根据 R0 标定值计算 Rs/R0
+-> 查曲线或使用课程给出的拟合公式
+-> 得到估算浓度或等级
+```
+
+### 公式框架
+
+常见位置：`BSP/mq_sensor.c`
+
+```c
+float MqVoltage_FromRaw(uint16_t raw, float vref)
+{
+    return (float)raw / 4095.0f * vref;
+}
+
+float MqValue_ConvertPlaceholder(float voltage)
+{
+    /* 视频待核对：传感器型号、模块电路、R0 标定和公式参数。 */
+    (void)voltage;
+    return 0.0f;
+}
+```
+
+### 调试观察点
+
+- 先验证电压变化趋势，不急着输出浓度。
+- 记录预热时间和环境条件。
+- 同一传感器不同模块板，负载电阻可能不同。
+
+### 常见坑
+
+- 直接套网上公式，不确认模块电路。
+- 没预热就判断浓度。
+- 把 ADC 电压波动当成真实浓度变化。
+
+---
+
 *课程：[21-1] [21-2] [21-3] [21-4] [21-5]*
 
 ---

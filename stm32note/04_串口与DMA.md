@@ -731,6 +731,318 @@ CPU 根据 DMA 剩余计数计算本帧长度
 
 ---
 
+## [19-3] 串口发送之更换脚组实验
+
+### 实验目标
+
+验证 USART 更换默认映射或重映射脚组后，串口仍能正常发送字符串。
+
+### 核心理解
+
+默认映射是芯片上电后外设信号默认连到的一组引脚；重映射是通过 AFIO 把同一个 USART 外设信号切到另一组支持复用功能的引脚。换脚组不是只改杜邦线，还要同步改 CubeMX 引脚、GPIO 复用模式、串口外设配置和串口助手连接对象。
+
+### CubeMX 配置要点
+
+1. 先确认目标 USART 支持哪些 TX/RX 引脚组合。
+2. 在 Pinout 中选择新的 TX/RX 复用引脚。
+3. 如果涉及 Remap，确认 CubeMX 已启用对应重映射。
+4. USART 参数保持与串口助手一致。
+5. 重新生成工程后，检查 `Core/Src/usart.c` 和 `Core/Src/gpio.c` 的初始化。
+
+### 最小发送验证
+
+常见位置：`Core/Src/main.c`
+
+```c
+const uint8_t msg[] = "USART remap test\r\n";
+
+while (1)
+{
+    HAL_UART_Transmit(&huart1, (uint8_t *)msg, sizeof(msg) - 1, 100);
+    HAL_Delay(1000);
+}
+```
+
+### 调试观察点
+
+- CubeMX 里看的 TX/RX 引脚，必须和实际 USB-TTL 接线一致。
+- GPIO 必须是串口复用功能，不是普通输出输入。
+- 串口助手要打开连接到这组 TX/RX 的那个 USB-TTL。
+
+### 常见坑
+
+- CubeMX 改了脚，线还插在旧脚组。
+- 只看 `huart1`，忘了检查 AFIO 重映射。
+- TX/RX 没交叉接，或者没有共地。
+
+## [19-6] 串口接收之控制LED灯
+
+### 实验目标
+
+用串口接收一个字节或字符，根据命令控制 LED。
+
+### 命令表
+
+| 接收字符 | 动作 |
+|----------|------|
+| `'1'` | 点亮 LED |
+| `'0'` | 熄灭 LED |
+| `'T'` | 翻转 LED |
+
+LED 引脚和有效电平以实际开发板原理图和 CubeMX 配置为准。
+
+### 最小框架
+
+常见位置：`Core/Src/main.c`
+
+```c
+uint8_t uart_rx_byte;
+volatile uint8_t uart_cmd_ready = 0;
+volatile uint8_t uart_cmd = 0;
+
+int main(void)
+{
+    HAL_Init();
+    SystemClock_Config();
+    MX_GPIO_Init();
+    MX_USART1_UART_Init();
+
+    HAL_UART_Receive_IT(&huart1, &uart_rx_byte, 1);
+
+    while (1)
+    {
+        if (uart_cmd_ready)
+        {
+            uart_cmd_ready = 0;
+
+            if (uart_cmd == '1')
+            {
+                HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+            }
+            else if (uart_cmd == '0')
+            {
+                HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+            }
+            else if (uart_cmd == 'T')
+            {
+                HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+            }
+        }
+    }
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART1)
+    {
+        uart_cmd = uart_rx_byte;
+        uart_cmd_ready = 1;
+        HAL_UART_Receive_IT(&huart1, &uart_rx_byte, 1);
+    }
+}
+```
+
+### 调试观察点
+
+- 串口助手发送的是字符 `'1'`，不是数值 `0x01`。
+- 回调里只设标志位，主循环处理 LED。
+- 每次接收完成后必须重新启动 `HAL_UART_Receive_IT()`。
+
+### 常见坑
+
+- ASCII 字符和数值混淆。
+- 回调里忘记重新开启接收。
+- LED 有效电平反了，看起来命令失效。
+
+## [19-8] 串口之多串口应用
+
+### 实验目标
+
+理解多串口不是多个 `printf` 自动分流，而是每个 USART 都有自己的 `UART_HandleTypeDef`、初始化、缓冲区和接收启动。
+
+### 工作流程
+
+```text
+USART1 初始化 -> 启动 USART1 接收
+USART2 初始化 -> 启动 USART2 接收
+任意串口进回调 -> 判断 huart 来源 -> 保存到对应缓冲区 -> 重新启动该串口接收
+```
+
+### 最小框架
+
+常见位置：`Core/Src/main.c`
+
+```c
+uint8_t uart1_rx;
+uint8_t uart2_rx;
+volatile uint8_t uart1_ready = 0;
+volatile uint8_t uart2_ready = 0;
+
+int main(void)
+{
+    HAL_Init();
+    SystemClock_Config();
+    MX_GPIO_Init();
+    MX_USART1_UART_Init();
+    MX_USART2_UART_Init();
+
+    HAL_UART_Receive_IT(&huart1, &uart1_rx, 1);
+    HAL_UART_Receive_IT(&huart2, &uart2_rx, 1);
+
+    while (1)
+    {
+        if (uart1_ready)
+        {
+            uart1_ready = 0;
+        }
+
+        if (uart2_ready)
+        {
+            uart2_ready = 0;
+        }
+    }
+}
+
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART1)
+    {
+        uart1_ready = 1;
+        HAL_UART_Receive_IT(&huart1, &uart1_rx, 1);
+    }
+    else if (huart->Instance == USART2)
+    {
+        uart2_ready = 1;
+        HAL_UART_Receive_IT(&huart2, &uart2_rx, 1);
+    }
+}
+```
+
+### 调试观察点
+
+- 每个串口都要独立配置波特率、TX/RX 引脚和 NVIC。
+- 每个串口都要单独启动接收。
+- 回调里用 `huart->Instance` 或句柄区分来源。
+
+### 常见坑
+
+- 只启动了一个串口接收。
+- 共用一个接收变量导致数据互相覆盖。
+- 以为 `printf` 会自动选择不同串口。
+
+## [19-9] 串口型雷达模块基础应用
+
+> 视频待核对：雷达模块型号、默认波特率、帧头、帧长度、字段含义、校验方式和显示格式。
+
+### 实验定位
+
+这是视频依赖项。PDF 的 USART 章节只能支撑串口收发原理，不能凭空补完整雷达模块协议。
+
+### 通用处理链路
+
+```text
+确认模块供电和电平
+-> 确认波特率和帧格式
+-> 接收原始字节
+-> 判断帧头
+-> 校验帧长度
+-> 校验校验和或 CRC
+-> 解析字段
+-> 串口或 OLED 输出结果
+```
+
+### 保守解析框架
+
+常见位置：`BSP/radar.c`
+
+```c
+typedef struct
+{
+    uint8_t raw[64];
+    uint16_t len;
+    uint8_t valid;
+} RadarFrame_t;
+
+uint8_t Radar_ParseFrame(const uint8_t *buf, uint16_t len, RadarFrame_t *frame)
+{
+    if (buf == NULL || frame == NULL)
+    {
+        return 0;
+    }
+
+    /* 视频待核对：帧头、长度、字段和校验方式。 */
+    frame->len = len;
+    frame->valid = 0;
+    return 0;
+}
+```
+
+### 调试观察点
+
+- 先用串口助手直接看原始十六进制字节。
+- 不知道协议时，不要急着写结构体解析。
+- 如果没有任何数据，先查供电、共地、TX/RX、波特率。
+
+### 常见坑
+
+- 把普通串口接收框架当成雷达协议。
+- 没确认帧头和长度就解析字段。
+- 数据是二进制帧，却按字符串处理。
+
+## [19-10] DMA与串口应用
+
+### 实验目标
+
+区分 UART TX DMA、RX DMA、IDLE + DMA 三种用法，并理解 DMA 接收缓冲区生命周期。
+
+### 三种方式对比
+
+| 方式 | 适用场景 | 关键点 |
+|------|----------|--------|
+| TX DMA | 大块发送，减少 CPU 等待 | 发送缓冲区在完成前不能失效 |
+| RX DMA | 固定长度接收 | 长度到了才完成 |
+| IDLE + DMA | 不定长帧接收 | 空闲中断判断一帧结束 |
+
+### 最小框架
+
+常见位置：`Core/Src/main.c`
+
+```c
+uint8_t tx_buf[] = "DMA TX\r\n";
+uint8_t rx_dma_buf[64];
+uint8_t rx_idle_buf[128];
+
+void UartDma_Start(void)
+{
+    HAL_UART_Transmit_DMA(&huart1, tx_buf, sizeof(tx_buf) - 1);
+    HAL_UART_Receive_DMA(&huart1, rx_dma_buf, sizeof(rx_dma_buf));
+    HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_idle_buf, sizeof(rx_idle_buf));
+}
+
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
+{
+    if (huart->Instance == USART2)
+    {
+        /* 这里复制或解析 rx_idle_buf[0..Size-1]。 */
+        HAL_UARTEx_ReceiveToIdle_DMA(&huart2, rx_idle_buf, sizeof(rx_idle_buf));
+    }
+}
+```
+
+### 调试观察点
+
+- DMA buffer 不要定义成局部变量。
+- RX DMA 长度和实际协议帧长度要匹配。
+- IDLE + DMA 适合串口模块这种长度不固定的数据帧。
+
+### 常见坑
+
+- DMA 没在 CubeMX 里绑定到 USART。
+- 接收缓冲区是局部数组，函数退出后失效。
+- 回调里没有重新启动下一轮接收。
+
+---
+
 *课程：[19-1]~[19-10] [20]*
 
 ---

@@ -484,6 +484,123 @@ PWM 这章的关键是把 `PSC / ARR / CCR` 三个数和真实波形对应起来
 
 ---
 
+## [22-1] TIM通用定时器基础中断应用
+
+### 实验目标
+
+用通用定时器产生周期性 Update 中断，在回调里设置标志位或翻转 LED。
+
+### 核心理解
+
+通用定时器不只会做 PWM，也能做基础定时中断、输出比较、输入捕获、编码器模式等。基础中断只用到 `PSC`、`ARR`、计数器溢出和 `HAL_TIM_Base_Start_IT()`。
+
+这一节和 `03_中断与定时器.md` 的 TIM 中断闪灯是同一条主线，这里只作为 `[22-1]` 的课程入口，不重复展开完整中断理论。
+
+### 基础流程
+
+```text
+配置 PSC / ARR
+-> 开启 TIM Update interrupt
+-> HAL_TIM_Base_Start_IT
+-> 计数溢出
+-> HAL_TIM_PeriodElapsedCallback
+-> 主循环处理标志位
+```
+
+### 最小代码
+
+常见位置：`Core/Src/main.c`
+
+```c
+volatile uint8_t tim_update_flag = 0;
+
+int main(void)
+{
+    HAL_Init();
+    SystemClock_Config();
+    MX_GPIO_Init();
+    MX_TIM2_Init();
+
+    HAL_TIM_Base_Start_IT(&htim2);
+
+    while (1)
+    {
+        if (tim_update_flag)
+        {
+            tim_update_flag = 0;
+            HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+        }
+    }
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM2)
+    {
+        tim_update_flag = 1;
+    }
+}
+```
+
+### 调试观察点
+
+- 先确认 `HAL_TIM_Base_Start_IT()` 被调用。
+- 再确认 NVIC 里对应 TIM 中断已开启。
+- 回调里判断 `htim->Instance`，避免多个定时器混淆。
+
+### 常见坑
+
+- 只初始化定时器，没有启动中断。
+- PSC/ARR 算错导致周期不对。
+- 在回调里做太多耗时业务。
+
+## [22-2] TIM高级定时器基础中断应用
+
+### 实验目标
+
+理解高级定时器即使拥有互补输出、死区、刹车和重复计数器等能力，也可以像普通定时器一样做基础定时中断。
+
+### 核心理解
+
+高级定时器比通用定时器多面向电机和功率控制的硬件能力。但如果课程只用它做基础中断，核心流程仍是 `PSC / ARR -> Start_IT -> PeriodElapsedCallback`。
+
+课程具体 TIM、时钟和中断周期以实际开发板原理图和 CubeMX 配置为准。
+
+### 最小代码
+
+常见位置：`Core/Src/main.c`
+
+```c
+volatile uint8_t tim1_update_flag = 0;
+
+void Tim1_StartExample(void)
+{
+    HAL_TIM_Base_Start_IT(&htim1);
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim->Instance == TIM1)
+    {
+        tim1_update_flag = 1;
+    }
+}
+```
+
+### 调试观察点
+
+- 如果只做基础中断，先不要打开互补输出、死区、刹车等复杂功能。
+- 高级定时器用于 PWM 输出时还可能涉及主输出使能；基础中断实验先分开理解。
+- 多个 TIM 共用一个回调函数，必须判断来源。
+
+### 常见坑
+
+- 把高级定时器理解成“不能做普通定时”。
+- 把电机 PWM 的 MOE/死区问题带入基础中断实验。
+- TIM1 挂在 APB2，总线时钟和 TIMx_CLK 要重新确认。
+
+---
+
 *课程：[22-1] [22-2] [23-1] [23-2]*
 
 ---

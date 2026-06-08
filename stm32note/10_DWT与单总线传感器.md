@@ -435,6 +435,185 @@ DWT 让我能从“感觉这段代码很快/很慢”变成“用周期数证明
 
 ---
 
+## [28-1] DWT基础应用与获取程序运行时间Debug练习（上）
+
+PDF 无 DWT 直接专题，不能凭空补完整实验。
+
+> 视频待核对：DWT 初始化封装、Debug 练习步骤、观察变量、断点位置和课程结论。
+
+### 实验目标
+
+理解 DWT 的 `CYCCNT` 是 CPU 周期计数器，可以用来估算一段代码运行时间。
+
+### 核心理解
+
+DWT 更像 CPU 旁边的周期秒表。只要知道系统主频，就可以把周期数换算成时间：
+
+```text
+time_us = cycles / SystemCoreClock * 1000000
+```
+
+### 初始化框架
+
+常见位置：`BSP/dwt_delay.c`
+
+```c
+void DWT_Init(void)
+{
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+uint32_t DWT_GetCycle(void)
+{
+    return DWT->CYCCNT;
+}
+```
+
+### Debug 练习思路
+
+1. 在被测代码前读取一次 `CYCCNT`。
+2. 在被测代码后再读取一次 `CYCCNT`。
+3. 两次相减得到周期数。
+4. 按 `SystemCoreClock` 换算时间。
+5. 用断点或串口打印确认结果。
+
+### 常见坑
+
+- 没开启 Trace，`CYCCNT` 不计数。
+- 系统时钟变了，换算公式还按旧主频。
+- Debug 优化等级不同，代码运行时间也可能变化。
+
+## [28-2] DWT基础应用与获取程序运行时间Debug练习（下）
+
+PDF 无 DWT 直接专题，不能凭空补完整实验。
+
+> 视频待核对：下半部分 Debug 操作、变量观察窗口、单步/断点顺序和课程示例代码。
+
+### 实验目标
+
+在 Debug 环境中观察 DWT 计数变化，建立“断点位置、变量值、运行时间”之间的对应关系。
+
+### 保守流程
+
+```text
+DWT_Init
+-> 记录 start
+-> 执行待测代码
+-> 记录 stop
+-> 计算 delta
+-> 换算 us/ms
+-> Debug 观察变量
+```
+
+### 最小框架
+
+常见位置：`Core/Src/main.c`
+
+```c
+uint32_t start_cycle;
+uint32_t stop_cycle;
+uint32_t delta_cycle;
+float delta_us;
+
+start_cycle = DWT_GetCycle();
+/* 放入需要测量的代码。 */
+stop_cycle = DWT_GetCycle();
+
+delta_cycle = stop_cycle - start_cycle;
+delta_us = (float)delta_cycle * 1000000.0f / (float)SystemCoreClock;
+```
+
+### 调试方法
+
+- 先确认 `SystemCoreClock` 和实际系统时钟一致。
+- 给 `start_cycle`、`stop_cycle`、`delta_cycle` 加 Watch。
+- 如果单步影响测量，就改用断点或批量运行到断点。
+
+### 常见坑
+
+- 在 Debug 单步过程中把人为等待也算进测量。
+- `CYCCNT` 溢出时没有考虑无符号减法。
+- 把 DWT 当成独立外设定时器使用。
+
+## [29] DWT应用与DHT11温湿度传感器
+
+PDF 无 DHT11 直接专题，不能凭空补完整实验。
+
+> 视频待核对：DWT 初始化封装、Debug 练习步骤、DHT11 数据线引脚、上拉方式、精确时序参数、读位阈值和校验流程。
+
+### 实验目标
+
+用微秒级延时和超时等待，按 DHT11 单总线时序读取 40 bit 数据，并做校验。
+
+### 单总线读取框架
+
+```text
+MCU 拉低数据线发起始信号
+-> MCU 释放总线并切输入
+-> DHT11 响应
+-> 读取 40 bit
+-> 按高电平持续时间判断 0/1
+-> 计算校验和
+-> 得到温湿度整数/小数部分
+```
+
+精确时序参数和读位阈值必须看视频或模块手册，不能凭空写死。
+
+### 最小框架
+
+常见位置：`BSP/dht11.c`
+
+```c
+typedef struct
+{
+    uint8_t humidity_int;
+    uint8_t humidity_dec;
+    uint8_t temperature_int;
+    uint8_t temperature_dec;
+} DHT11_Data_t;
+
+uint8_t DHT11_Read(DHT11_Data_t *data)
+{
+    uint8_t raw[5] = {0};
+
+    if (data == NULL)
+    {
+        return 0;
+    }
+
+    /* 视频待核对：起始信号、响应等待、读 40 bit 和阈值。 */
+
+    if ((uint8_t)(raw[0] + raw[1] + raw[2] + raw[3]) != raw[4])
+    {
+        return 0;
+    }
+
+    data->humidity_int = raw[0];
+    data->humidity_dec = raw[1];
+    data->temperature_int = raw[2];
+    data->temperature_dec = raw[3];
+    return 1;
+}
+```
+
+### 调试方法
+
+- 先确认数据线空闲为高电平。
+- 所有等待电平变化的循环都加超时。
+- 先看 5 个原始字节和校验，再看温湿度显示。
+- 如果校验失败，不要先改公式，先看波形和时序。
+
+### 常见坑
+
+- 数据线没有上拉。
+- GPIO 方向没有从输出切回输入。
+- 读位阈值不准导致 0/1 判断反。
+- 没有超时保护，传感器异常时程序卡死。
+
+---
+
 ## 复习检查清单
 
 - [ ] 我能说明 DWT / CYCCNT 的作用。
