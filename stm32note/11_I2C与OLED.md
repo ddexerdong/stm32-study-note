@@ -173,6 +173,8 @@ I2C 引脚、速度、地址、OLED 供电和上拉方式：
 
 ### `BSP/oled.h`
 
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
+
 ```c
 #ifndef OLED_H
 #define OLED_H
@@ -189,6 +191,8 @@ void OLED_ShowBitmap(uint8_t x, uint8_t y, const uint8_t *bitmap, uint8_t width,
 ```
 
 ### `BSP/oled.c`
+
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
 
 ```c
 #include "oled.h"
@@ -413,6 +417,8 @@ OLED 对我来说不是一个“会自动显示字符串的屏幕”，而是一
 
 ## [31-1] OLED模块初始化与清屏
 
+> 来源：PDF 弱对应 + 视频待核对 + 模块资料待核对
+
 > 视频待核对：OLED 控制器型号、I2C 地址、分辨率、页寻址方式、初始化命令、控制字节、字库来源、位图取模格式。
 
 ### 实验定位
@@ -438,6 +444,8 @@ I2C 初始化
 ### 最小框架
 
 常见位置：`BSP/oled.c`
+
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
 
 ```c
 void OLED_WriteCommand(uint8_t cmd)
@@ -477,6 +485,8 @@ void OLED_Clear(void)
 
 ## [31-2] OLED模块显示字符与DHT11模块数据
 
+> 来源：PDF 弱对应 + 视频待核对 + 模块资料待核对
+
 > 视频待核对：OLED 控制器型号、I2C 地址、分辨率、页寻址方式、初始化命令、控制字节、字库来源、位图取模格式。
 
 ### 实验目标
@@ -503,6 +513,8 @@ OLED_Init
 
 常见位置：`BSP/oled.c`
 
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
+
 ```c
 void OLED_ShowChar(uint8_t x, uint8_t y, char ch)
 {
@@ -524,6 +536,8 @@ void OLED_ShowString(uint8_t x, uint8_t y, const char *str)
 ```
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
 
 ```c
 char line[24];
@@ -547,6 +561,8 @@ OLED_ShowString(0, 0, line);
 
 ## [31-3] OLED模块显示位图
 
+> 来源：PDF 弱对应 + 视频待核对 + 模块资料待核对
+
 > 视频待核对：OLED 控制器型号、I2C 地址、分辨率、页寻址方式、初始化命令、控制字节、字库来源、位图取模格式。
 
 ### 实验目标
@@ -566,6 +582,8 @@ OLED_ShowString(0, 0, line);
 ### 最小框架
 
 常见位置：`BSP/oled.c`
+
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
 
 ```c
 void OLED_ShowBitmap(uint8_t x, uint8_t y,
@@ -600,6 +618,14 @@ void OLED_ShowBitmap(uint8_t x, uint8_t y,
 
 ---
 
+## 本章仍需视频核对
+
+- [ ] OLED 控制器型号、I2C 地址、分辨率、页寻址方式、初始化命令、字库来源和显示函数接口。
+- [ ] 课程使用的 OLED 取模方式、字库数组格式、位图数据排列方向和坐标 API。
+- [ ] `OLED_I2C_ADDR`、`OLED_CONTROL_CMD`、`OLED_CONTROL_DATA`、初始化命令、清屏页数、字库数组和位图取模格式。
+- [ ] OLED 控制器型号、I2C 地址、分辨率、页寻址方式、初始化命令、控制字节、字库来源、位图取模格式。
+
+---
 ## 复习检查清单
 
 - [ ] 我能说明 I2C 为什么需要上拉电阻。

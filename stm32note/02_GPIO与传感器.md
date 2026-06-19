@@ -292,6 +292,8 @@ GPIO_PinState HAL_GPIO_ReadPin(GPIO_TypeDef *GPIOx, uint16_t GPIO_Pin);
 - 不调用时，程序无法知道按键或数字传感器当前状态。
 - 适合按键、避障模块、循迹模块、比较器模块的 `DO` 输出读取。
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET)
 {
@@ -305,6 +307,8 @@ if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET)
 
 ### LED 以 1 Hz 闪烁
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 while (1)
 {
@@ -316,6 +320,8 @@ while (1)
 周期 = 500 ms 亮 + 500 ms 灭 = 1 s。
 
 ### 流水灯
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 uint16_t leds[] = {GPIO_PIN_0, GPIO_PIN_1, GPIO_PIN_2};
@@ -329,6 +335,8 @@ for (int i = 0; i < 3; i++)
 ```
 
 ### 延时消抖
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET)
@@ -349,6 +357,8 @@ if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET)
 这个写法简单，但 `HAL_Delay(20)` 和等待松开的 `while` 都会阻塞 CPU。只有单任务实验时适合。
 
 ### 状态机消抖
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 typedef enum
@@ -404,6 +414,8 @@ void Key_Task(void)
 
 在 `while (1)` 中周期性调用：
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 while (1)
 {
@@ -413,6 +425,8 @@ while (1)
 ```
 
 ### 按键控制蜂鸣器
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET)
@@ -433,6 +447,8 @@ if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0) == GPIO_PIN_RESET)
 ```
 
 ### 数字传感器通用读取模板
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 if (HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_1) == GPIO_PIN_RESET)
@@ -560,6 +576,8 @@ GPIO 这一章真正要练的是“硬件状态”和“代码判断”之间的
 
 ## [9] GPIO输出与点灯
 
+> 来源：PDF 强对应 + 现有笔记整理
+
 ### 实验目标
 
 用一个 GPIO 输出高低电平，控制 LED 亮灭，确认“CubeMX 配引脚 -> HAL 写电平 -> 硬件响应”这条最基础链路。
@@ -586,6 +604,8 @@ LED 可能是高电平点亮，也可能是低电平点亮，以实际开发板�
 
 常见位置：`Core/Src/main.c`
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 while (1)
 {
@@ -611,6 +631,8 @@ while (1)
 
 ## [10] 基础延时与三个流水灯
 
+> 来源：PDF 强对应 + 现有笔记整理
+
 ### 实验目标
 
 理解 `HAL_Delay()` 依赖 SysTick 毫秒节拍，用三个 GPIO 做顺序亮灭，形成最简单的流水灯。
@@ -633,6 +655,8 @@ while (1)
 ### 最小业务逻辑
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 while (1)
@@ -668,6 +692,8 @@ while (1)
 
 ## [11] GPIO输入与按键开关灯
 
+> 来源：PDF 强对应 + 现有笔记整理
+
 ### 实验目标
 
 读取按键输入电平，并在确认一次有效按下后切换 LED 状态。
@@ -692,6 +718,8 @@ while (1)
 ### 最小业务逻辑
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 uint8_t led_state = 0;
@@ -730,6 +758,8 @@ while (1)
 
 ## [13] 光敏传感器触发LED灯
 
+> 来源：PDF 弱对应 + 现有笔记整理
+
 ### 实验目标
 
 把光敏模块的数字输出接到 STM32 GPIO，读取 DO 电平后控制 LED。
@@ -754,6 +784,8 @@ while (1)
 ### 最小业务逻辑
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 while (1)
@@ -785,6 +817,8 @@ while (1)
 
 ## [14] 反射传感器触发LED灯
 
+> 来源：PDF 弱对应 + 现有笔记整理
+
 ### 实验目标
 
 读取反射传感器数字输出，用 LED 显示是否检测到反射目标。
@@ -810,6 +844,8 @@ while (1)
 
 常见位置：`Core/Src/main.c`
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 while (1)
 {
@@ -832,6 +868,8 @@ while (1)
 - 忘记模块和 STM32 共地。
 
 ## [15] 热敏传感器触发蜂鸣器
+
+> 来源：PDF 弱对应 + 现有笔记整理
 
 ### 实验目标
 
@@ -858,6 +896,8 @@ while (1)
 
 常见位置：`Core/Src/main.c`
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 while (1)
 {
@@ -880,6 +920,8 @@ while (1)
 - 温度变化慢，误以为程序没运行。
 
 ## [16] 火焰传感器触发蜂鸣器
+
+> 来源：PDF 弱对应 + 现有笔记整理
 
 ### 实验目标
 
@@ -905,6 +947,8 @@ while (1)
 ### 最小业务逻辑
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 while (1)

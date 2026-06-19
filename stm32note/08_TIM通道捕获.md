@@ -227,6 +227,8 @@ __HAL_TIM_SET_COUNTER(&htim3, 0);
 
 #### 读取当前位置
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 #include "main.h"
 #include "tim.h"
@@ -272,6 +274,8 @@ int __io_putchar(int ch)
 ```
 
 #### 读取一段时间内的增量
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 #include "main.h"
@@ -665,6 +669,8 @@ __HAL_TIM_SET_CAPTUREPOLARITY(&htim2,
 
 函数：
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 if (__HAL_TIM_GET_FLAG(&htim2, TIM_FLAG_CC1) != RESET)
 {
@@ -692,6 +698,8 @@ if (__HAL_TIM_GET_FLAG(&htim2, TIM_FLAG_CC1) != RESET)
 ### 示例代码
 
 #### 基于输入捕获中断测距
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 #include "main.h"

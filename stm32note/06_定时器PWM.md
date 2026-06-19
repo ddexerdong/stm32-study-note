@@ -269,6 +269,8 @@ __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, 1500);
 
 ### 舵机控制
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 /* USER CODE BEGIN 2 */
 HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
@@ -289,6 +291,8 @@ while (1)
 
 ### 舵机角度函数
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 void Servo_SetPulse(uint16_t pulseUs)
 {
@@ -306,6 +310,8 @@ void Servo_SetPulse(uint16_t pulseUs)
 ```
 
 ### 呼吸灯教学写法
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 /* USER CODE BEGIN 2 */
@@ -331,6 +337,8 @@ while (1)
 这个写法直观，但 `HAL_Delay()` 会阻塞 CPU。工程里可改成定时器中断或主循环状态机。
 
 ### 非阻塞呼吸灯思路
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 uint16_t duty = 0;
@@ -486,6 +494,8 @@ PWM 这章的关键是把 `PSC / ARR / CCR` 三个数和真实波形对应起来
 
 ## [22-1] TIM通用定时器基础中断应用
 
+> 来源：PDF 强对应 + 现有笔记整理
+
 ### 实验目标
 
 用通用定时器产生周期性 Update 中断，在回调里设置标志位或翻转 LED。
@@ -510,6 +520,8 @@ PWM 这章的关键是把 `PSC / ARR / CCR` 三个数和真实波形对应起来
 ### 最小代码
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 volatile uint8_t tim_update_flag = 0;
@@ -556,6 +568,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 ## [22-2] TIM高级定时器基础中断应用
 
+> 来源：PDF 强对应 + 现有笔记整理
+
 ### 实验目标
 
 理解高级定时器即使拥有互补输出、死区、刹车和重复计数器等能力，也可以像普通定时器一样做基础定时中断。
@@ -569,6 +583,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 ### 最小代码
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 volatile uint8_t tim1_update_flag = 0;

@@ -323,6 +323,8 @@ HAL_StatusTypeDef HAL_ADC_Start_DMA(ADC_HandleTypeDef *hadc,
 
 ### 单通道轮询采集
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 HAL_ADCEx_Calibration_Start(&hadc1);
 
@@ -340,6 +342,8 @@ HAL_ADC_Stop(&hadc1);
 ```
 
 ### 多通道 DMA 采集
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 /* USER CODE BEGIN PV */
@@ -366,6 +370,8 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 
 ### 主循环中读取 DMA 最新值
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 while (1)
 {
@@ -380,6 +386,8 @@ while (1)
 
 ### NTC 简化换算
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 float voltage = (float)adcBuf[0] / 4095.0f * 3.3f;
 
@@ -390,6 +398,8 @@ float temperature = (voltage - 0.5f) / 0.01f;
 精确 NTC 换算需要查传感器 B 值、分压电阻，并使用 NTC 方程或查表。
 
 ### 光敏传感器阈值判断
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 float lightVoltage = (float)adcBuf[1] / 4095.0f * 3.3f;
@@ -538,6 +548,8 @@ ADC 不是“直接测温度/测光照”，它只是在测电压。
 
 ## [21-1] ADC单通道采集电位器应用（轮询）
 
+> 来源：PDF 强对应 + 现有笔记整理
+
 ### 实验目标
 
 用 ADC 单通道轮询读取电位器输出的模拟电压，并换算成电压值。
@@ -564,6 +576,8 @@ Voltage = Raw / 4095.0 * Vref
 ### 最小代码
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 uint32_t adc_raw;
@@ -596,6 +610,8 @@ while (1)
 
 ## [21-2] ADC多通道采集热敏、光敏、反射传感器（轮询）
 
+> 来源：PDF 强对应 + 现有笔记整理
+
 ### 实验目标
 
 用规则组扫描多个 ADC 通道，轮询读取热敏、光敏、反射等模拟传感器的 AO 电压。
@@ -617,6 +633,8 @@ while (1)
 ### 多通道轮询框架
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 #define ADC_CH_COUNT 3
@@ -654,6 +672,8 @@ while (1)
 
 ## [21-3] ADC多通道采集雨量、土壤湿度传感器（中断+注入）
 
+> 来源：PDF 弱对应 + 视频待核对 + 模块资料待核对
+
 > 视频待核对：雨量、土壤湿度模块接线、ADC 通道、规则组/注入组配置、触发方式和回调处理流程。
 
 ### 实验定位
@@ -680,6 +700,8 @@ while (1)
 ### 最小框架
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 volatile uint32_t adc_regular_value;
@@ -716,6 +738,8 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
 
 ## [21-4] ADC多通道采集空气、烟雾传感器（DMA传输）
 
+> 来源：PDF 强对应 + 现有笔记整理
+
 ### 实验目标
 
 用 ADC + DMA 连续采集空气、烟雾等模拟模块的 AO 电压，并按 Rank 顺序放入缓冲区。
@@ -737,6 +761,8 @@ ADC + DMA 适合连续多通道采样。ADC 每转换完一个通道，DMA 自�
 ### DMA 缓冲区框架
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 #define ADC_DMA_CH_COUNT 2
@@ -773,6 +799,8 @@ while (1)
 
 ## [21-5] 空气、烟雾传感器公式换算
 
+> 来源：PDF 弱对应 + 视频待核对 + 模块资料待核对
+
 > 视频待核对：课程使用的空气/烟雾传感器型号、负载电阻、R0 标定方法、公式参数和单位。
 
 ### 实验定位
@@ -797,6 +825,8 @@ ADC 原始值
 ### 公式框架
 
 常见位置：`BSP/mq_sensor.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 float MqVoltage_FromRaw(uint16_t raw, float vref)
@@ -830,6 +860,12 @@ float MqValue_ConvertPlaceholder(float voltage)
 
 ---
 
+## 本章仍需视频核对
+
+- [ ] 雨量、土壤湿度模块接线、ADC 通道、规则组/注入组配置、触发方式和回调处理流程。
+- [ ] 课程使用的空气/烟雾传感器型号、负载电阻、R0 标定方法、公式参数和单位。
+
+---
 ## 复习检查清单
 
 - [ ] 能说明 ADC 只负责把电压转换成数字值，不直接理解物理量。

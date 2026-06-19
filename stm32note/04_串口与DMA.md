@@ -136,6 +136,8 @@ GND             ------------  GND
 
 CubeIDE 常用 `__io_putchar()`：
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 int __io_putchar(int ch)
 {
@@ -266,6 +268,8 @@ __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
 
 函数：
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 HAL_StatusTypeDef HAL_UART_Transmit(UART_HandleTypeDef *huart,
                                     const uint8_t *pData,
@@ -291,6 +295,8 @@ F1 的 USART 数据寄存器叫 `DR`，不是新系列里常见的 `TDR/RDR` 命
 ### `HAL_UART_Receive`
 
 函数：
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 HAL_StatusTypeDef HAL_UART_Receive(UART_HandleTypeDef *huart,
@@ -373,6 +379,8 @@ HAL_UART_Transmit(&huart1, &data, 1, 100);
 
 ### 发送字符串
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 #include <string.h>
 
@@ -383,6 +391,8 @@ HAL_UART_Transmit(&huart1, (uint8_t *)str, strlen(str), 100);
 `strlen()` 不包含末尾 `'\0'`，所以不会把字符串结束符发出去。
 
 ### `printf` 重定向
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 #include <stdio.h>
@@ -395,6 +405,8 @@ int __io_putchar(int ch)
 ```
 
 也可以用 `fputc()`：
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 #include <stdio.h>
@@ -410,6 +422,8 @@ int fputc(int ch, FILE *f)
 
 ### 阻塞接收 10 字节
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 uint8_t rxBuf[10];
 
@@ -422,6 +436,8 @@ if (HAL_UART_Receive(&huart1, rxBuf, 10, 1000) == HAL_OK)
 只有收到 10 字节或超时，函数才返回。等待期间 CPU 被阻塞。
 
 ### 中断接收定长数据
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 uint8_t rxBuf[10];
@@ -447,6 +463,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 局限：发送方必须刚好发满 `Size` 字节，回调才会触发。
 
 ### 串口控制 LED
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 uint8_t rxCmd;
@@ -488,6 +506,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 #### `main.c`
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 #define RX_BUF_SIZE 256
 
@@ -516,6 +536,8 @@ while (1)
 ```
 
 #### `stm32f1xx_it.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 /* USER CODE BEGIN 0 */
@@ -561,6 +583,8 @@ void USART1_IRQHandler(void)
 - 示例为了教学清晰使用固定长度 `256`，实际工程可把缓冲区大小放到公共头文件里，避免跨文件魔法数字。
 
 ### 多串口回调区分
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
@@ -733,6 +757,8 @@ CPU 根据 DMA 剩余计数计算本帧长度
 
 ## [19-3] 串口发送之更换脚组实验
 
+> 来源：PDF 强对应 + 现有笔记整理
+
 ### 实验目标
 
 验证 USART 更换默认映射或重映射脚组后，串口仍能正常发送字符串。
@@ -752,6 +778,8 @@ CPU 根据 DMA 剩余计数计算本帧长度
 ### 最小发送验证
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 const uint8_t msg[] = "USART remap test\r\n";
@@ -777,6 +805,8 @@ while (1)
 
 ## [19-6] 串口接收之控制LED灯
 
+> 来源：PDF 强对应 + 现有笔记整理
+
 ### 实验目标
 
 用串口接收一个字节或字符，根据命令控制 LED。
@@ -794,6 +824,8 @@ LED 引脚和有效电平以实际开发板原理图和 CubeMX 配置为准。
 ### 最小框架
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 uint8_t uart_rx_byte;
@@ -856,6 +888,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 ## [19-8] 串口之多串口应用
 
+> 来源：PDF 强对应 + 现有笔记整理
+
 ### 实验目标
 
 理解多串口不是多个 `printf` 自动分流，而是每个 USART 都有自己的 `UART_HandleTypeDef`、初始化、缓冲区和接收启动。
@@ -871,6 +905,8 @@ USART2 初始化 -> 启动 USART2 接收
 ### 最小框架
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 uint8_t uart1_rx;
@@ -932,6 +968,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 
 ## [19-9] 串口型雷达模块基础应用
 
+> 来源：PDF 弱对应 + 视频待核对 + 模块资料待核对
+
 > 视频待核对：雷达模块型号、默认波特率、帧头、帧长度、字段含义、校验方式和显示格式。
 
 ### 实验定位
@@ -954,6 +992,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 ### 保守解析框架
 
 常见位置：`BSP/radar.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 typedef struct
@@ -991,6 +1031,8 @@ uint8_t Radar_ParseFrame(const uint8_t *buf, uint16_t len, RadarFrame_t *frame)
 
 ## [19-10] DMA与串口应用
 
+> 来源：PDF 强对应 + 现有笔记整理
+
 ### 实验目标
 
 区分 UART TX DMA、RX DMA、IDLE + DMA 三种用法，并理解 DMA 接收缓冲区生命周期。
@@ -1006,6 +1048,8 @@ uint8_t Radar_ParseFrame(const uint8_t *buf, uint16_t len, RadarFrame_t *frame)
 ### 最小框架
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 uint8_t tx_buf[] = "DMA TX\r\n";
@@ -1047,6 +1091,11 @@ void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t Size)
 
 ---
 
+## 本章仍需视频核对
+
+- [ ] 雷达模块型号、默认波特率、帧头、帧长度、字段含义、校验方式和显示格式。
+
+---
 ## 复习检查清单
 
 - [ ] 能说明 UART/USART 的 TX、RX、波特率和 8N1 含义。

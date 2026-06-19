@@ -313,6 +313,8 @@ HAL_ADC_PollForConversion(&hadc1, HAL_MAX_DELAY);
 
 ### `main.c`
 
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
 ```c
 #include "main.h"
 #include "adc.h"
@@ -367,6 +369,8 @@ int main(void)
 ```
 
 ### `printf` 重定向
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
 /* USER CODE BEGIN 4 */

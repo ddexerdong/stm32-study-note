@@ -154,6 +154,8 @@ DHT11 引脚、上拉方式、采样时序：
 
 ### `BSP/dwt_delay.h`
 
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
+
 ```c
 #ifndef DWT_DELAY_H
 #define DWT_DELAY_H
@@ -168,6 +170,8 @@ void DWT_Delay_Us(uint32_t us);
 ```
 
 ### `BSP/dwt_delay.c`
+
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
 
 ```c
 #include "dwt_delay.h"
@@ -202,6 +206,8 @@ void DWT_Delay_Us(uint32_t us)
 
 ### `BSP/dht11.h`
 
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
+
 ```c
 #ifndef DHT11_H
 #define DHT11_H
@@ -224,6 +230,8 @@ uint8_t DHT11_Read(DHT11_Data_t *data);
 ### `BSP/dht11.c`
 
 这里只写结构框架，关键等待和时序阈值需要按课程视频补齐。
+
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
 
 ```c
 #include "dht11.h"
@@ -337,6 +345,8 @@ DWT_Delay_Init();
 
 在 `while (1)` 的 `USER CODE` 区域中：
 
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
+
 ```c
 DHT11_Data_t dht = {0};
 
@@ -437,6 +447,8 @@ DWT 让我能从“感觉这段代码很快/很慢”变成“用周期数证明
 
 ## [28-1] DWT基础应用与获取程序运行时间Debug练习（上）
 
+> 来源：无直接 PDF 对应 + 现有笔记整理 + 视频待核对
+
 PDF 无 DWT 直接专题，不能凭空补完整实验。
 
 > 视频待核对：DWT 初始化封装、Debug 练习步骤、观察变量、断点位置和课程结论。
@@ -456,6 +468,8 @@ time_us = cycles / SystemCoreClock * 1000000
 ### 初始化框架
 
 常见位置：`BSP/dwt_delay.c`
+
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
 
 ```c
 void DWT_Init(void)
@@ -487,6 +501,8 @@ uint32_t DWT_GetCycle(void)
 
 ## [28-2] DWT基础应用与获取程序运行时间Debug练习（下）
 
+> 来源：无直接 PDF 对应 + 现有笔记整理 + 视频待核对
+
 PDF 无 DWT 直接专题，不能凭空补完整实验。
 
 > 视频待核对：下半部分 Debug 操作、变量观察窗口、单步/断点顺序和课程示例代码。
@@ -510,6 +526,8 @@ DWT_Init
 ### 最小框架
 
 常见位置：`Core/Src/main.c`
+
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
 
 ```c
 uint32_t start_cycle;
@@ -539,6 +557,8 @@ delta_us = (float)delta_cycle * 1000000.0f / (float)SystemCoreClock;
 
 ## [29] DWT应用与DHT11温湿度传感器
 
+> 来源：无直接 PDF 对应 + 视频待核对 + 模块资料待核对
+
 PDF 无 DHT11 直接专题，不能凭空补完整实验。
 
 > 视频待核对：DWT 初始化封装、Debug 练习步骤、DHT11 数据线引脚、上拉方式、精确时序参数、读位阈值和校验流程。
@@ -564,6 +584,8 @@ MCU 拉低数据线发起始信号
 ### 最小框架
 
 常见位置：`BSP/dht11.c`
+
+> 代码性质：示例框架，用于理解流程，不能保证直接编译。
 
 ```c
 typedef struct
@@ -614,6 +636,15 @@ uint8_t DHT11_Read(DHT11_Data_t *data)
 
 ---
 
+## 本章仍需视频核对
+
+- [ ] DWT 初始化封装、Debug 练习步骤、DHT11 数据线引脚、上拉方式和精确时序参数。
+- [ ] 课程中是否使用同样的 DWT 寄存器封装，是否需要处理不同编译器或 Debug 设置差异。
+- [ ] DWT 初始化封装、Debug 练习步骤、观察变量、断点位置和课程结论。
+- [ ] 下半部分 Debug 操作、变量观察窗口、单步/断点顺序和课程示例代码。
+- [ ] DWT 初始化封装、Debug 练习步骤、DHT11 数据线引脚、上拉方式、精确时序参数、读位阈值和校验流程。
+
+---
 ## 复习检查清单
 
 - [ ] 我能说明 DWT / CYCCNT 的作用。
