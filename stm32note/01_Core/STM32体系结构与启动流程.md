@@ -1,0 +1,166 @@
+---
+type: concept
+status: refactor
+course: stm32-f103-hal
+source:
+  - local-notes
+  - st-reference-manual
+  - st-datasheet
+  - st-hal-documentation
+tags:
+  - stm32
+  - cortex-m3
+  - startup
+---
+# STM32 体系结构与启动流程
+
+> 能力定位：理解程序为什么能从复位走到 `main()`。
+>
+> 原始来源：[[01_准备与基础认知]]。
+
+## STM32 是什么
+
+STM32 可以理解为：Cortex-M 内核 + Flash/SRAM + 时钟复位系统 + GPIO、TIM、ADC、USART 等片上外设。HAL 不是硬件本身，而是对寄存器操作的工程封装。
+
+## 启动流程
+
+```text
+上电或复位
+-> 从向量表读取初始栈顶地址
+-> 跳转 Reset_Handler
+-> SystemInit 配置基础系统环境
+-> 初始化 C 运行环境（数据段 / BSS）
+-> 进入 main
+-> HAL_Init
+-> SystemClock_Config
+-> MX_xxx_Init
+-> 主循环
+```
+
+## 三个容易混淆的文件
+
+| 对象 | 作用 |
+|---|---|
+| 启动文件 | 提供向量表、Reset_Handler 和默认中断入口 |
+| 链接脚本 / Scatter 文件 | 决定代码、常量和变量放到 Flash/SRAM 的位置 |
+| 向量表 | 保存初始栈地址和各异常/中断入口地址 |
+
+这里保持概念级说明，不展开具体启动汇编指令。
+
+## HAL 工程中的入口
+
+- `HAL_Init()`：初始化 HAL 基础设施和默认时基。
+- `SystemClock_Config()`：配置系统和总线时钟。
+- `MX_xxx_Init()`：配置各外设实例。
+- `while (1)`：应用层持续运行入口。
+
+## 调试抓手
+
+程序不运行时，依次确认是否进入 `Reset_Handler`、`main()`、时钟配置和外设初始化。HardFault、时钟失败和 BOOT0 状态应分开排查。
+
+## 关联知识
+
+- [[工具链与开发环境]]
+- [[RCC时钟树]]
+- [[NVIC_EXTI_SysTick]]
+
+---
+
+## 本节目标
+
+- 能画出 Cortex-M3、Flash、SRAM 和片上外设关系
+- 能按顺序解释 Reset_Handler 到 while(1)
+- 能说明向量表、启动文件、链接脚本和系统文件各自作用
+
+## 知识地图
+
+| 名词 | 工程含义 |
+|---|---|
+| Cortex-M3 | 执行指令、异常和中断管理的内核 |
+| Flash | 保存代码和只读数据 |
+| SRAM | 保存栈、堆和运行期变量 |
+| 内存映射 | 用统一地址空间访问存储器和外设寄存器 |
+| 向量表 | 保存初始栈顶和异常/中断入口 |
+
+## 本质理解
+
+MCU 上电后不会直接“运行 main”。内核先从固定位置取得栈顶和复位入口，启动代码建立 C 语言运行环境，之后才进入 main。理解这条链路可以把启动失败、HardFault、时钟失败和业务死循环分开。
+
+为什么这样做：先建立硬件和数据流模型，再记 HAL API，才能在 API 变化或板卡变化时仍然定位问题。
+
+## STM32F103 / HAL 中的实现方式
+
+- STM32F103 的外设寄存器通过内存映射进入 Cortex-M3 地址空间，HAL 最终仍是读写这些寄存器。
+- 启动文件提供向量表和弱定义中断入口；链接脚本决定代码、数据、栈等放置位置。
+- `system_stm32f1xx.c` 中的系统初始化负责基础时钟/向量相关准备，CubeMX 在 main 中生成 HAL 和外设初始化顺序。
+
+## CubeMX 配置要点
+
+1. 选择准确器件，确认 Flash/SRAM 容量。
+2. 配置 SYS Debug、RCC 和 Clock Configuration。
+3. 生成工程后查看 startup、system、main 和链接配置文件。
+4. 在 `main`、`SystemClock_Config`、`MX_GPIO_Init` 设置断点观察启动顺序。
+
+## 常用 HAL API
+
+| API / 对象 | 作用 | 常见位置 |
+|---|---|---|
+| `HAL_Init` | 初始化 HAL、NVIC 分组和 tick | main 开头 |
+| `SystemCoreClockUpdate` | 更新系统时钟变量 | 时钟变化后 |
+| `HAL_GetTick` | 读取 HAL 毫秒时基 | 超时和非阻塞逻辑 |
+| `NVIC_SystemReset` | 触发系统复位 | 受控恢复场景 |
+
+## 最小实验 / 最小框架
+
+> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+
+```c
+int main(void)
+{
+    HAL_Init();
+    SystemClock_Config();
+    MX_GPIO_Init();
+
+    while (1)
+    {
+        App_Task();
+    }
+}
+```
+
+## 调试方法
+
+```text
+确认 BOOT0 与启动来源
+-> 在 Reset_Handler 或 main 断点
+-> 确认栈指针和向量表位置合理
+-> 单步通过 HAL_Init
+-> 检查 SystemClock_Config 是否进入 Error_Handler
+-> 逐个启用 MX_xxx_Init
+-> 最后运行主循环
+```
+
+## 常见坑
+
+| 现象 | 常见原因 | 处理方法 |
+|---|---|---|
+| 复位后不进 main | 启动来源或向量表错误 | 检查 BOOT0、Flash 和启动文件 |
+| 进入 Error_Handler | 时钟配置失败 | 核对晶振和 Clock Configuration |
+| 全局变量异常 | C 运行环境或越界写损坏 | 检查链接区域和内存越界 |
+| 中断跳错位置 | 向量表/函数名不匹配 | 核对 startup 中 IRQ 名称 |
+| 栈溢出 | 局部数组或递归过大 | 缩小局部对象并检查栈大小 |
+
+## 与其它章节的关系
+
+- [[RCC时钟树]] 负责启动后的系统时钟。
+- [[NVIC_EXTI_SysTick]] 解释向量表和异常入口。
+- [[工具链与开发环境]] 负责构建和下载这套固件。
+
+## 复习检查清单
+
+- [ ] 能否不用看代码说清本章数据流和硬件链路？
+- [ ] 能否在 CubeMX 中完成最小配置并说明每个关键选项？
+- [ ] 能否写出初始化、启动和回调/轮询的最小框架？
+- [ ] 能否用原始电平、波形、返回值或寄存器证明外设在工作？
+- [ ] 能否按“硬件 -> 时钟/配置 -> Start -> 回调 -> 业务”排查故障？
+- [ ] 能否指出本章哪些参数必须按原理图、手册或实测确认？
