@@ -146,16 +146,73 @@ MX_DMA_Init()
 
 ## 最小驱动框架
 
-> 代码性质：示例框架，用于理解流程，不能保证直接编译。
+> 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
 
 ```c
+static uint8_t ESP8266_SendLine(const char *command)
+{
+    if (command == NULL) return 0U;
+    return HAL_UART_Transmit(&huart2, (const uint8_t *)command,
+                              (uint16_t)strlen(command),
+                              ESP8266_UART_TIMEOUT_MS) == HAL_OK;
+}
+
+static uint8_t ESP8266_WaitResponse(const char *expected,
+                                    uint32_t timeout_ms)
+{
+    uint32_t start = HAL_GetTick();
+    while ((uint32_t)(HAL_GetTick() - start) < timeout_ms)
+    {
+        ESP8266_PollRx();
+        if (ESP8266_ResponseContains(expected)) return 1U;
+        if (ESP8266_ResponseHasError()) return 0U;
+    }
+    return 0U;
+}
+
 uint8_t ESP8266_Command(const char *cmd, const char *expect, uint32_t timeout)
 {
     ESP8266_ClearRx();
-    ESP8266_SendLine(cmd);
+    if (!ESP8266_SendLine(cmd)) return 0U;
     return ESP8266_WaitResponse(expect, timeout);
 }
+
+static uint8_t ESP8266_BasicTest(void)
+{
+    return ESP8266_Command(ESP8266_CMD_AT,
+                           ESP8266_RESPONSE_OK,
+                           ESP8266_COMMAND_TIMEOUT_MS);
+}
+
+static uint8_t ESP8266_ConnectWifi(const char *ssid, const char *password)
+{
+    char command[ESP8266_COMMAND_BUFFER_SIZE];
+    if (!ESP8266_FormatJoinCommand(command, sizeof(command), ssid, password))
+        return 0U;
+    return ESP8266_Command(command, ESP8266_RESPONSE_OK,
+                           ESP8266_JOIN_TIMEOUT_MS);
+}
+
+static uint8_t ESP8266_SendPayload(const uint8_t *data, uint16_t length)
+{
+    if (!ESP8266_PrepareSend(length)) return 0U;
+    return HAL_UART_Transmit(&huart2, data, length,
+                              ESP8266_DATA_TIMEOUT_MS) == HAL_OK;
+}
+
+static void ESP8266_OnReceivedCommand(const uint8_t *data, uint16_t length)
+{
+    Protocol_PushBytes(data, length);
+}
+
+if (!ESP8266_BasicTest() ||
+    !ESP8266_ConnectWifi(WIFI_SSID_PLACEHOLDER, WIFI_PASSWORD_PLACEHOLDER))
+{
+    Debug_ReportEsp8266State();
+}
 ```
+
+AT 命令文本、行结束、响应、STA/AP、连接和透传步骤由当前 ESP-AT 固件决定。SSID、密码、服务器和端口必须由安全配置提供，不写入公开笔记或源码示例。
 
 ## 调试方法
 

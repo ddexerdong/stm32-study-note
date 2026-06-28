@@ -143,15 +143,71 @@ MX_I2Cx_Init()
 
 ## 最小驱动框架
 
-> 代码性质：示例框架，用于理解流程，不能保证直接编译。
+> 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
 
 ```c
 uint8_t OLED_WriteCommand(uint8_t cmd)
 {
     uint8_t frame[2] = {OLED_CMD_CONTROL, cmd};
-    return HAL_I2C_Master_Transmit(&hi2c1, OLED_ADDR, frame, 2, 100) == HAL_OK;
+    return HAL_I2C_Master_Transmit(&hi2c1, OLED_ADDR_HAL, frame,
+                                   sizeof(frame), OLED_I2C_TIMEOUT_MS) == HAL_OK;
+}
+
+static uint8_t OLED_WriteData(const uint8_t *data, uint16_t length)
+{
+    uint8_t frame[OLED_TX_CHUNK_SIZE + 1U];
+    if ((data == NULL) || (length > OLED_TX_CHUNK_SIZE)) return 0U;
+
+    frame[0] = OLED_DATA_CONTROL;
+    memcpy(&frame[1], data, length);
+    return HAL_I2C_Master_Transmit(&hi2c1, OLED_ADDR_HAL, frame,
+                                   length + 1U, OLED_I2C_TIMEOUT_MS) == HAL_OK;
+}
+
+static void OLED_ClearBuffer(void)
+{
+    memset(oled_buffer, 0, sizeof(oled_buffer));
+}
+
+static uint8_t OLED_DrawChar(uint16_t x, uint16_t y, char ch)
+{
+    const uint8_t *glyph = Font_GetGlyph(ch);
+    if ((glyph == NULL) || !OLED_CanDrawGlyph(x, y)) return 0U;
+    OLED_CopyGlyphToBuffer(oled_buffer, x, y, glyph);
+    return 1U;
+}
+
+static void OLED_DrawString(uint16_t x, uint16_t y, const char *text)
+{
+    while ((text != NULL) && (*text != '\0'))
+    {
+        if (!OLED_DrawChar(x, y, *text++)) break;
+        x += FONT_GLYPH_WIDTH;
+    }
+}
+
+static uint8_t OLED_Flush(void)
+{
+    for (uint16_t page = 0U; page < OLED_PAGE_COUNT; ++page)
+    {
+        if (!OLED_SetPageAndColumn(page, 0U)) return 0U;
+        if (!OLED_WriteData(&oled_buffer[page][0], OLED_PAGE_WIDTH)) return 0U;
+    }
+    return 1U;
+}
+
+static uint8_t OLED_Init(const uint8_t *commands, uint16_t count)
+{
+    for (uint16_t i = 0U; i < count; ++i)
+    {
+        if (!OLED_WriteCommand(commands[i])) return 0U;
+    }
+    OLED_ClearBuffer();
+    return OLED_Flush();
 }
 ```
+
+`OLED_ADDR_HAL`、控制字节、初始化命令、分辨率、页宽、字库和位图取模格式全部由实际控制器/模块资料提供。示例不包含未经核对的完整初始化序列。
 
 ## 调试方法
 

@@ -145,14 +145,61 @@ I2C 的共享能力来自“任何设备都不主动输出高电平”。主机�
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-for (uint16_t addr = 1; addr < 128; ++addr)
+#define I2C_ADDR_TO_HAL(addr7) ((uint16_t)((addr7) << 1U))
+
+static void I2C_ScanBus(void)
 {
-    if (HAL_I2C_IsDeviceReady(&hi2c1, addr << 1, 2, 10) == HAL_OK)
+    for (uint16_t addr7 = I2C_FIRST_7BIT_ADDR;
+         addr7 <= I2C_LAST_7BIT_ADDR;
+         ++addr7)
     {
-        FoundDevice(addr);
+        HAL_StatusTypeDef status = HAL_I2C_IsDeviceReady(
+            &hi2c1, I2C_ADDR_TO_HAL(addr7), I2C_SCAN_TRIALS,
+            I2C_TIMEOUT_MS);
+
+        if (status == HAL_OK)
+        {
+            Debug_ReportI2cAddress((uint8_t)addr7);
+        }
     }
 }
+
+static HAL_StatusTypeDef I2C_ReadDeviceId(uint8_t addr7,
+                                          uint16_t id_reg,
+                                          uint8_t *id)
+{
+    return HAL_I2C_Mem_Read(&hi2c1, I2C_ADDR_TO_HAL(addr7), id_reg,
+                            DEVICE_REG_ADDR_SIZE, id, 1U, I2C_TIMEOUT_MS);
+}
+
+static HAL_StatusTypeDef I2C_WriteRegister(uint8_t addr7,
+                                           uint16_t reg,
+                                           uint8_t value)
+{
+    return HAL_I2C_Mem_Write(&hi2c1, I2C_ADDR_TO_HAL(addr7), reg,
+                             DEVICE_REG_ADDR_SIZE, &value, 1U,
+                             I2C_TIMEOUT_MS);
+}
+
+static HAL_StatusTypeDef I2C_ReadRegisters(uint8_t addr7, uint16_t first_reg,
+                                           uint8_t *data, uint16_t length)
+{
+    return HAL_I2C_Mem_Read(&hi2c1, I2C_ADDR_TO_HAL(addr7), first_reg,
+                            DEVICE_REG_ADDR_SIZE, data, length,
+                            I2C_TIMEOUT_MS);
+}
+
+uint8_t id;
+HAL_StatusTypeDef status = I2C_ReadDeviceId(SENSOR_ADDR_7BIT,
+                                            SENSOR_ID_REG, &id);
+if (status != HAL_OK)
+{
+    uint32_t error = HAL_I2C_GetError(&hi2c1);
+    Debug_ReportI2cError(status, error);
+}
 ```
+
+设备地址宏保存 7 位地址，只在 HAL 调用边界左移。`DEVICE_REG_ADDR_SIZE`、ID/数据寄存器和连续读取规则以具体器件手册为准。
 
 ## 调试方法
 

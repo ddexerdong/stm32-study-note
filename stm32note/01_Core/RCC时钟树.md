@@ -141,11 +141,30 @@ HSI/HSE -> PLL -> SYSCLK -> AHB -> APB1/APB2 -> 外设时钟
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-uint32_t sysclk = HAL_RCC_GetSysClockFreq();
-uint32_t hclk   = HAL_RCC_GetHCLKFreq();
-uint32_t pclk1  = HAL_RCC_GetPCLK1Freq();
-uint32_t pclk2  = HAL_RCC_GetPCLK2Freq();
+typedef struct
+{
+    uint32_t sysclk_hz;
+    uint32_t hclk_hz;
+    uint32_t pclk1_hz;
+    uint32_t pclk2_hz;
+} ClockSnapshot_t;
+
+static ClockSnapshot_t Clock_ReadSnapshot(void)
+{
+    ClockSnapshot_t clock = {
+        .sysclk_hz = HAL_RCC_GetSysClockFreq(),
+        .hclk_hz   = HAL_RCC_GetHCLKFreq(),
+        .pclk1_hz  = HAL_RCC_GetPCLK1Freq(),
+        .pclk2_hz  = HAL_RCC_GetPCLK2Freq(),
+    };
+    return clock;
+}
+
+/* main() 中 SystemClock_Config() 完成后调用。 */
+ClockSnapshot_t clock_now = Clock_ReadSnapshot();
 ```
+
+用调试器或串口观察 `clock_now`，再结合 APB 分频判断 TIM 实际时钟。外部晶振和目标主频以实际开发板原理图和 CubeMX Clock Configuration 为准。
 
 ## 常见坑
 

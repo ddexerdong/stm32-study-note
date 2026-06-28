@@ -147,11 +147,86 @@ SPI 只规定同步移位，不规定命令含义。CS 拉低后发送什么命�
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-CS_LOW();
-HAL_SPI_Transmit(&hspi1, &command, 1, 100);
-HAL_SPI_TransmitReceive(&hspi1, dummy, id, sizeof(id), 100);
-CS_HIGH();
+static void Flash_Select(void)
+{
+    HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_RESET);
+}
+
+static void Flash_Deselect(void)
+{
+    HAL_GPIO_WritePin(FLASH_CS_GPIO_Port, FLASH_CS_Pin, GPIO_PIN_SET);
+}
+
+static uint8_t SPI_TransferByte(uint8_t tx, uint8_t *rx)
+{
+    return HAL_SPI_TransmitReceive(&hspi1, &tx, rx, 1U,
+                                   SPI_TIMEOUT_MS) == HAL_OK;
+}
+
+static uint8_t Flash_ReadJedecId(uint8_t *id, uint16_t length)
+{
+    uint8_t command = FLASH_CMD_READ_JEDEC_ID;
+    Flash_Select();
+    HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi1, &command, 1U,
+                                                SPI_TIMEOUT_MS);
+    if (status == HAL_OK)
+    {
+        status = HAL_SPI_Receive(&hspi1, id, length, SPI_TIMEOUT_MS);
+    }
+    Flash_Deselect();
+    return status == HAL_OK;
+}
+
+static uint8_t Flash_WriteEnable(void)
+{
+    uint8_t command = FLASH_CMD_WRITE_ENABLE;
+    Flash_Select();
+    HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi1, &command, 1U,
+                                                SPI_TIMEOUT_MS);
+    Flash_Deselect();
+    return status == HAL_OK;
+}
+
+static uint8_t Flash_ReadStatus(uint8_t *status_reg)
+{
+    uint8_t command = FLASH_CMD_READ_STATUS;
+    Flash_Select();
+    HAL_StatusTypeDef status = HAL_SPI_Transmit(&hspi1, &command, 1U,
+                                                SPI_TIMEOUT_MS);
+    if (status == HAL_OK)
+    {
+        status = HAL_SPI_Receive(&hspi1, status_reg, 1U, SPI_TIMEOUT_MS);
+    }
+    Flash_Deselect();
+    return status == HAL_OK;
+}
+
+static uint8_t Flash_WaitReady(uint32_t timeout_ms)
+{
+    uint32_t start = HAL_GetTick();
+    uint8_t status_reg;
+    do
+    {
+        if (!Flash_ReadStatus(&status_reg)) return 0U;
+        if ((status_reg & FLASH_STATUS_BUSY_MASK) == 0U) return 1U;
+    } while ((uint32_t)(HAL_GetTick() - start) < timeout_ms);
+    return 0U;
+}
+
+static uint8_t Flash_PageProgramAndVerify(uint32_t address,
+                                          const uint8_t *data,
+                                          uint16_t length)
+{
+    uint8_t verify[FLASH_VERIFY_BUFFER_SIZE];
+    if ((length > sizeof(verify)) || !Flash_WriteEnable()) return 0U;
+    if (!Flash_PageProgram(address, data, length)) return 0U;
+    if (!Flash_WaitReady(FLASH_OPERATION_TIMEOUT_MS)) return 0U;
+    if (!Flash_Read(address, verify, length)) return 0U;
+    return memcmp(data, verify, length) == 0;
+}
 ```
+
+命令字、状态位、地址宽度、页边界、擦除粒度和容量均使用工程宏/驱动函数表示，必须按实际 Flash 型号手册确认。页写前还要由上层保证不跨越器件页边界。
 
 ## 调试方法
 

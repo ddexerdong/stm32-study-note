@@ -140,17 +140,59 @@ HAL 只负责 I2C/SPI 字节传输。校准参数解释、定点/浮点补偿公
 
 ## 最小驱动框架
 
-> 代码性质：示例框架，用于理解流程，不能保证直接编译。
+> 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
 
 ```c
+static uint8_t Barometer_ReadId(uint8_t *id)
+{
+    return Barometer_BusRead(BAROMETER_REG_ID, id, 1U);
+}
+
+static uint8_t Barometer_ReadCalibration(Barometer_Calibration_t *cal)
+{
+    uint8_t raw[BAROMETER_CALIBRATION_BYTES];
+    if ((cal == NULL) ||
+        !Barometer_BusRead(BAROMETER_REG_CALIBRATION_START,
+                           raw, sizeof(raw)))
+    {
+        return 0U;
+    }
+    return Barometer_DecodeCalibration(raw, sizeof(raw), cal);
+}
+
+static uint8_t Barometer_ReadRaw(Barometer_Raw_t *raw)
+{
+    uint8_t data[BAROMETER_RAW_BYTES];
+    if ((raw == NULL) ||
+        !Barometer_BusRead(BAROMETER_REG_RAW_START, data, sizeof(data)))
+    {
+        return 0U;
+    }
+    return Barometer_DecodeRaw(data, sizeof(data), raw);
+}
+
+static uint8_t Barometer_CompensateFromManual(
+    const Barometer_Raw_t *raw,
+    const Barometer_Calibration_t *cal,
+    Barometer_Data_t *out);
+
 uint8_t Barometer_Read(Barometer_Data_t *out)
 {
     Barometer_Raw_t raw;
-    if (!Barometer_ReadRaw(&raw)) return 0;
-    /* 补偿函数必须来自对应芯片手册。 */
-    return Barometer_Compensate(&raw, &calibration, out);
+    if ((out == NULL) || !Barometer_ReadRaw(&raw)) return 0U;
+    return Barometer_CompensateFromManual(&raw, &barometer_calibration, out);
+}
+
+uint8_t id;
+if (!Barometer_ReadId(&id) ||
+    !Barometer_IdMatchesSelectedChip(id) ||
+    !Barometer_ReadCalibration(&barometer_calibration))
+{
+    Debug_ReportBarometerInitFailure(id);
 }
 ```
+
+`Barometer_BusRead()` 由 I2C 或 SPI BSP 实现。BMP280 与 SPL06 的 ID、寄存器、校准布局、字节序和补偿函数不同，所有宏及 `Barometer_CompensateFromManual()` 必须逐款依据官方手册实现。
 
 ## 调试方法
 

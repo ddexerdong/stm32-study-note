@@ -146,16 +146,44 @@ CubeMX 配置 TIM 时钟、PSC、ARR
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-HAL_TIM_Base_Start_IT(&htim2);
+static volatile uint8_t tim_period_event;
+
+static uint8_t Timer_Start(void)
+{
+    __HAL_TIM_SET_COUNTER(&htim2, 0U);
+    return HAL_TIM_Base_Start_IT(&htim2) == HAL_OK;
+}
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
     if (htim->Instance == TIM2)
     {
-        timer_flag = 1;
+        tim_period_event = 1U;
+    }
+    else if (htim->Instance == ANOTHER_TIM_INSTANCE)
+    {
+        App_OnAnotherTimerPeriod();
+    }
+}
+
+/* main()：MX_TIM2_Init() 之后启动。 */
+if (!Timer_Start())
+{
+    Error_Handler();
+}
+
+while (1)
+{
+    if (tim_period_event)
+    {
+        tim_period_event = 0U;
+        uint32_t cnt_snapshot = __HAL_TIM_GET_COUNTER(&htim2);
+        App_OnTimerPeriod(cnt_snapshot);
     }
 }
 ```
+
+`ANOTHER_TIM_INSTANCE` 仅表示多定时器分流思路，应替换为实际实例或删除该分支。PSC、ARR 和 IRQ 以 CubeMX 配置为准。
 
 ## 调试方法
 

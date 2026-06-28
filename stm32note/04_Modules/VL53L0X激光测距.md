@@ -139,16 +139,54 @@ HAL 只承担 I2C/GPIO 适配。初始化表、测距模式、数据就绪状态
 
 ## 最小驱动框架
 
-> 代码性质：示例框架，用于理解流程，不能保证直接编译。
+> 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
 
 ```c
+static uint8_t VL53L0X_InitDevice(VL53L0X_Device_t *device)
+{
+    if (HAL_I2C_IsDeviceReady(&hi2c1, VL53L0X_ADDR_HAL,
+                               VL53L0X_READY_TRIALS,
+                               VL53L0X_I2C_TIMEOUT_MS) != HAL_OK)
+    {
+        return 0U;
+    }
+    return VL53L0X_Vendor_Init(device) == VL53L0X_VENDOR_OK;
+}
+
+static uint8_t VL53L0X_WaitDataReady(VL53L0X_Device_t *device,
+                                      uint32_t timeout_ms)
+{
+    uint32_t start = HAL_GetTick();
+    while ((uint32_t)(HAL_GetTick() - start) < timeout_ms)
+    {
+        uint8_t ready = 0U;
+        if (VL53L0X_Vendor_CheckDataReady(device, &ready) != VL53L0X_VENDOR_OK)
+            return 0U;
+        if (ready) return 1U;
+    }
+    return 0U;
+}
+
 uint8_t VL53L0X_ReadDistance(uint16_t *mm)
 {
-    if (!VL53L0X_WaitReady(VL53L0X_TIMEOUT_MS)) return 0;
-    if (!VL53L0X_GetRange(mm, &range_status)) return 0;
+    VL53L0X_RangeStatus_t range_status;
+    if ((mm == NULL) || !VL53L0X_WaitDataReady(&vl53_device,
+                                                VL53L0X_TIMEOUT_MS))
+        return 0U;
+    if (VL53L0X_Vendor_GetDistance(&vl53_device, mm, &range_status) !=
+        VL53L0X_VENDOR_OK)
+        return 0U;
     return VL53L0X_IsRangeValid(range_status);
 }
+
+if (!VL53L0X_InitDevice(&vl53_device) ||
+    (VL53L0X_Vendor_StartMeasurement(&vl53_device) != VL53L0X_VENDOR_OK))
+{
+    Debug_ReportVl53InitFailure();
+}
 ```
+
+`VL53L0X_Vendor_*` 代表来源明确的厂商库接口。设备地址、初始化流程、测距模式、状态码和清中断步骤以实际官方库版本为准，不手写未知寄存器序列。
 
 ## 调试方法
 

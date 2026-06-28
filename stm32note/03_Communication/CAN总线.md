@@ -151,12 +151,72 @@ MX_CAN_Init() 配置位时序
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-HAL_CAN_ConfigFilter(&hcan, &filter);
-HAL_CAN_Start(&hcan);
-HAL_CAN_ActivateNotification(&hcan, CAN_IT_RX_FIFO0_MSG_PENDING);
+static volatile uint8_t can_rx_ready;
+static CAN_RxHeaderTypeDef can_rx_header;
+static uint8_t can_rx_data[CAN_CLASSIC_MAX_DATA_BYTES];
 
-/* 发送时填充 header，再调用 HAL_CAN_AddTxMessage。 */
+static uint8_t CAN_StartNode(void)
+{
+    CAN_FilterTypeDef filter = {0};
+    CAN_LoadProjectFilter(&filter); /* ID/Mask/FIFO 由项目配置提供。 */
+
+    if (HAL_CAN_ConfigFilter(&hcan, &filter) != HAL_OK) return 0U;
+    if (HAL_CAN_Start(&hcan) != HAL_OK) return 0U;
+    if (HAL_CAN_ActivateNotification(
+            &hcan, CAN_IT_RX_FIFO0_MSG_PENDING | CAN_IT_ERROR) != HAL_OK)
+    {
+        (void)HAL_CAN_Stop(&hcan);
+        return 0U;
+    }
+    return 1U;
+}
+
+static uint8_t CAN_SendFrame(const CAN_TxHeaderTypeDef *header,
+                             const uint8_t *data)
+{
+    uint32_t mailbox;
+    HAL_StatusTypeDef status = HAL_CAN_AddTxMessage(&hcan, header,
+                                                    data, &mailbox);
+    if (status != HAL_OK)
+    {
+        Debug_ReportCanError(HAL_CAN_GetError(&hcan));
+        return 0U;
+    }
+    return 1U;
+}
+
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan)
+{
+    if (hcan->Instance != CAN1) return;
+
+    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0,
+                             &can_rx_header, can_rx_data) == HAL_OK)
+    {
+        can_rx_ready = 1U;
+    }
+    else
+    {
+        Debug_ReportCanError(HAL_CAN_GetError(hcan));
+    }
+}
+
+if (!CAN_StartNode())
+{
+    Error_Handler();
+}
+
+while (1)
+{
+    if (can_rx_ready)
+    {
+        can_rx_ready = 0U;
+        App_ProcessCanFrame(&can_rx_header, can_rx_data);
+    }
+}
+
 ```
+
+`CAN_LoadProjectFilter()` 和 Tx Header 由项目协议填充；位时序、ID、过滤器和收发器参数不在示例中写死，以 CubeMX、节点协议和总线实测为准。
 
 ## 调试方法
 

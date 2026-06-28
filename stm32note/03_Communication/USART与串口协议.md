@@ -160,19 +160,91 @@ ASCII 是字符到字节值的一种编码；串口工具的“ASCII 发送”�
 
 ```c
 static uint8_t rx_byte;
+static uint8_t rx_dma[UART_DMA_CAPACITY + 1U];
+static volatile uint8_t rx_byte_ready;
+static volatile uint16_t rx_dma_size;
 
-HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
+static HAL_StatusTypeDef UART_SendBlocking(const uint8_t *data, uint16_t length)
+{
+    return HAL_UART_Transmit(&huart1, data, length, UART_TX_TIMEOUT_MS);
+}
+
+/* printf 重定向方式随编译器/运行库而异。 */
+int __io_putchar(int ch)
+{
+    uint8_t byte = (uint8_t)ch;
+    return (HAL_UART_Transmit(&huart1, &byte, 1U,
+                              UART_TX_TIMEOUT_MS) == HAL_OK) ? ch : -1;
+}
+
+static uint8_t UART_StartReceive(void)
+{
+#if UART_HAL_HAS_RECEIVE_TO_IDLE
+    return HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_dma,
+                                        UART_DMA_CAPACITY) == HAL_OK;
+#else
+    if (HAL_UART_Receive_DMA(&huart1, rx_dma, UART_DMA_CAPACITY) != HAL_OK)
+    {
+        return 0U;
+    }
+    __HAL_UART_ENABLE_IT(&huart1, UART_IT_IDLE);
+    return 1U;
+#endif
+}
+
+static void UART_ParseHexFrame(const uint8_t *data, uint16_t length)
+{
+    /* 二进制帧必须显式传长度；帧头/长度/校验交给协议解析器。 */
+    Protocol_PushBytes(data, length);
+}
+
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
+{
+    if ((huart->Instance == USART1) && (size <= UART_DMA_CAPACITY))
+    {
+        rx_dma[size] = '\0'; /* 仅便于文本调试；二进制仍使用 size。 */
+        rx_dma_size = size;
+        UART_ParseHexFrame(rx_dma, size);
+    }
+}
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART1)
     {
-        command_byte = rx_byte;
-        command_ready = 1;
-        HAL_UART_Receive_IT(&huart1, &rx_byte, 1);
+        rx_byte_ready = 1U;
+        (void)HAL_UART_Receive_IT(&huart1, &rx_byte, 1U);
     }
 }
+
+#if !UART_HAL_HAS_RECEIVE_TO_IDLE
+/* 在 USARTx_IRQHandler 调 HAL_UART_IRQHandler() 前后接入，位置按工程核对。 */
+static void UART_LegacyIdleHandler(void)
+{
+    if ((__HAL_UART_GET_FLAG(&huart1, UART_FLAG_IDLE) != RESET) &&
+        (__HAL_UART_GET_IT_SOURCE(&huart1, UART_IT_IDLE) != RESET))
+    {
+        __HAL_UART_CLEAR_IDLEFLAG(&huart1);
+        uint16_t size = UART_DMA_CAPACITY -
+                        (uint16_t)__HAL_DMA_GET_COUNTER(huart1.hdmarx);
+        (void)HAL_UART_DMAStop(&huart1);
+        UART_ParseHexFrame(rx_dma, size);
+        (void)UART_StartReceive();
+    }
+}
+#endif
+
+if (HAL_UART_Receive_IT(&huart1, &rx_byte, 1U) != HAL_OK ||
+    !UART_StartReceive())
+{
+    Error_Handler();
+}
+
+static const uint8_t hello[] = "uart ready\r\n";
+(void)UART_SendBlocking(hello, sizeof(hello) - 1U);
 ```
+
+`UART_HAL_HAS_RECEIVE_TO_IDLE` 由工程按本地 `stm32f1xx_hal_uart.h` 定义。旧版 HAL 替代框架的 IRQ 接入位置、清 IDLE 顺序和 DMA 重启必须结合本地驱动源码验证。
 
 ## 调试方法
 

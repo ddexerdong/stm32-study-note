@@ -146,12 +146,57 @@ GPIO 是芯片和外部电路的边界。代码里的 SET/RESET 必须翻译成�
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-GPIO_PinState key = HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin);
-if (key == KEY_ACTIVE_LEVEL)
+static volatile uint8_t key_exti_event;
+
+static uint8_t Key_IsPressed(void)
 {
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+    return HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == KEY_ACTIVE_LEVEL;
+}
+
+static uint8_t SensorDO_IsActive(void)
+{
+    GPIO_PinState level = HAL_GPIO_ReadPin(SENSOR_DO_GPIO_Port, SENSOR_DO_Pin);
+    return level == SENSOR_DO_ACTIVE_LEVEL;
+}
+
+static void Buzzer_Set(uint8_t enabled)
+{
+    HAL_GPIO_WritePin(BUZZER_GPIO_Port, BUZZER_Pin,
+                      enabled ? BUZZER_ON_LEVEL : BUZZER_OFF_LEVEL);
+}
+
+void HAL_GPIO_EXTI_Callback(uint16_t pin)
+{
+    if (pin == KEY_Pin)
+    {
+        key_exti_event = 1U;
+    }
+}
+
+/* Core/Src/main.c：MX_GPIO_Init() 之后进入主循环。 */
+while (1)
+{
+    if (Key_IsPressed())
+    {
+        HAL_Delay(KEY_DEBOUNCE_MS);
+        if (Key_IsPressed())
+        {
+            HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+            while (Key_IsPressed()) { /* 等待松手；正式项目可改状态机。 */ }
+        }
+    }
+
+    Buzzer_Set(SensorDO_IsActive());
+
+    if (key_exti_event)
+    {
+        key_exti_event = 0U;
+        App_OnKeyEvent();
+    }
 }
 ```
+
+前提：LED、按键、传感器 DO 和蜂鸣器引脚已由 CubeMX 配置。所有有效电平、上下拉和负载驱动方式以实际开发板原理图为准。
 
 ## 常见坑
 

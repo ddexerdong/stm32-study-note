@@ -137,11 +137,58 @@ CubeMX 配置 TIM PWM、PSC、ARR、Pulse 和复用引脚
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+static uint32_t PercentToCcr(TIM_HandleTypeDef *htim, uint32_t percent)
+{
+    if (percent > PWM_DUTY_MAX_PERCENT)
+    {
+        percent = PWM_DUTY_MAX_PERCENT;
+    }
+    return ((htim->Init.Period + 1U) * percent) / PWM_DUTY_MAX_PERCENT;
+}
 
-uint32_t ccr = (htim3.Init.Period + 1U) * duty_percent / 100U;
-__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, ccr);
+static void BreathingLed_Task(void)
+{
+    static int32_t duty;
+    static int32_t step = BREATH_STEP_PERCENT;
+
+    duty += step;
+    if ((duty >= (int32_t)PWM_DUTY_MAX_PERCENT) || (duty <= 0))
+    {
+        step = -step;
+    }
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1,
+                          PercentToCcr(&htim3, (uint32_t)duty));
+}
+
+static uint32_t ServoAngleToCcr(uint32_t angle)
+{
+    uint32_t pulse_span = SERVO_MAX_PULSE_TICKS - SERVO_MIN_PULSE_TICKS;
+    return SERVO_MIN_PULSE_TICKS +
+           (pulse_span * angle) / SERVO_MAX_ANGLE_DEG;
+}
+
+/* main()：MX_TIM3_Init() 后启动一次 PWM。 */
+if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1) != HAL_OK)
+{
+    Error_Handler();
+}
+
+while (1)
+{
+    if (BreathingLed_TimeToUpdate())
+    {
+        BreathingLed_Task();
+    }
+
+    if (Servo_CommandReady())
+    {
+        uint32_t ccr = ServoAngleToCcr(Servo_GetTargetAngle());
+        __HAL_TIM_SET_COMPARE(&htim3, SERVO_TIM_CHANNEL, ccr);
+    }
+}
 ```
+
+`SERVO_MIN/MAX_PULSE_TICKS`、角度范围、PWM 通道和更新节拍必须按舵机手册与 TIM 计数频率标定。高级定时器主输出、死区和刹车设置以 CubeMX 实际生成结果为准。
 
 ## 常见坑
 

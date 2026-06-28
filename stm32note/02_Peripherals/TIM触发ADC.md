@@ -144,14 +144,52 @@ MX_DMA_Init()
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-HAL_ADC_Start(&hadc1);
-HAL_TIM_Base_Start(&htim3);
+static uint32_t adc_dma_buffer[ADC_CHANNEL_COUNT];
+static volatile uint8_t adc_frame_ready;
 
-if (HAL_ADC_PollForConversion(&hadc1, 100) == HAL_OK)
+static uint8_t TimAdc_Start(void)
 {
-    adc_raw = HAL_ADC_GetValue(&hadc1);
+    if (HAL_ADCEx_Calibration_Start(&hadc1) != HAL_OK)
+    {
+        return 0U;
+    }
+    if (HAL_ADC_Start_DMA(&hadc1, adc_dma_buffer, ADC_CHANNEL_COUNT) != HAL_OK)
+    {
+        return 0U;
+    }
+    if (HAL_TIM_Base_Start(&htim3) != HAL_OK)
+    {
+        HAL_ADC_Stop_DMA(&hadc1);
+        return 0U;
+    }
+    return 1U;
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+    if (hadc->Instance == ADC1)
+    {
+        adc_frame_ready = 1U;
+    }
+}
+
+/* main()：MX_DMA_Init -> MX_ADC1_Init -> MX_TIM3_Init 之后。 */
+if (!TimAdc_Start())
+{
+    Error_Handler();
+}
+
+while (1)
+{
+    if (adc_frame_ready)
+    {
+        adc_frame_ready = 0U;
+        App_ProcessAdcFrame(adc_dma_buffer, ADC_CHANNEL_COUNT);
+    }
 }
 ```
+
+必须先让 ADC/DMA 就绪，再启动 TIM TRGO。`ADC_CHANNEL_COUNT`、Rank 顺序、DMA 模式和 TRGO 选择以 CubeMX 配置为准；启动顺序反了可能丢失首个触发。
 
 ## 调试方法
 

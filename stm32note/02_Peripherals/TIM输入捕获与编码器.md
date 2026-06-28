@@ -152,12 +152,81 @@ HC-SR04 一类模块可作为输入捕获练习：MCU 产生 TRIG，模块在 EC
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-uint32_t now = __HAL_TIM_GET_COUNTER(&htim3);
-int32_t delta = (int16_t)(now - last_count);
-last_count = now;
+static uint16_t encoder_last_count;
+static volatile uint32_t capture_rising;
+static volatile uint32_t capture_width;
+static volatile uint8_t capture_wait_falling;
+static volatile uint8_t capture_ready;
 
-/* 输入捕获回调中读取 CCR，并按计数器范围处理差值。 */
+static int16_t Encoder_ReadDelta(void)
+{
+    uint16_t now = (uint16_t)__HAL_TIM_GET_COUNTER(&htim3);
+    int16_t delta = (int16_t)(now - encoder_last_count);
+    encoder_last_count = now;
+    return delta;
+}
+
+static uint32_t Capture_DeltaWithWrap(uint32_t start, uint32_t end,
+                                      uint32_t period)
+{
+    return (end >= start) ? (end - start)
+                          : ((period + 1U - start) + end);
+}
+
+void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
+{
+    if ((htim->Instance != CAPTURE_TIM_INSTANCE) ||
+        (htim->Channel != HAL_TIM_ACTIVE_CHANNEL_1))
+    {
+        return;
+    }
+
+    uint32_t captured = HAL_TIM_ReadCapturedValue(htim, CAPTURE_TIM_CHANNEL);
+    if (!capture_wait_falling)
+    {
+        capture_rising = captured;
+        capture_wait_falling = 1U;
+        __HAL_TIM_SET_CAPTUREPOLARITY(htim, CAPTURE_TIM_CHANNEL,
+                                      TIM_INPUTCHANNELPOLARITY_FALLING);
+    }
+    else
+    {
+        capture_width = Capture_DeltaWithWrap(capture_rising, captured,
+                                               htim->Init.Period);
+        capture_wait_falling = 0U;
+        capture_ready = 1U;
+        __HAL_TIM_SET_CAPTUREPOLARITY(htim, CAPTURE_TIM_CHANNEL,
+                                      TIM_INPUTCHANNELPOLARITY_RISING);
+    }
+}
+
+if (HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL) != HAL_OK)
+{
+    Error_Handler();
+}
+if (HAL_TIM_IC_Start_IT(&htim2, CAPTURE_TIM_CHANNEL) != HAL_OK)
+{
+    Error_Handler();
+}
+
+while (1)
+{
+    if (Encoder_SpeedSampleDue())
+    {
+        int16_t delta = Encoder_ReadDelta();
+        App_UpdateEncoderSpeed(delta, ENCODER_SAMPLE_PERIOD_MS);
+    }
+
+    if (capture_ready)
+    {
+        capture_ready = 0U;
+        App_UpdatePulseWidth(capture_width, CAPTURE_COUNTER_HZ);
+        Ultrasonic_UpdateDistance(capture_width, CAPTURE_COUNTER_HZ);
+    }
+}
 ```
+
+超声波距离换算所用声速、触发脉宽、ECHO 电平和计数频率以模块手册、原理图和实测为准。若一次脉宽可能跨越多个计数周期，还需累计更新溢出次数。
 
 ## 常见坑
 

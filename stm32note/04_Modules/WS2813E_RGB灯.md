@@ -136,16 +136,71 @@ tags:
 
 ## 最小驱动框架
 
-> 代码性质：示例框架，用于理解流程，不能保证直接编译。
+> 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
 
 ```c
+typedef struct
+{
+    uint8_t red;
+    uint8_t green;
+    uint8_t blue;
+} RGB_Color_t;
+
+static RGB_Color_t pixel_buffer[RGB_PIXEL_COUNT];
+static uint16_t pwm_buffer[RGB_PWM_BUFFER_LENGTH];
+static TIM_HandleTypeDef *rgb_htim;
+static volatile uint8_t rgb_dma_done = 1U;
+
+void WS2813E_Init(TIM_HandleTypeDef *htim)
+{
+    rgb_htim = htim;
+}
+
+static uint8_t WS2813E_SetPixel(uint16_t index, RGB_Color_t color)
+{
+    if (index >= RGB_PIXEL_COUNT) return 0U;
+    pixel_buffer[index] = color;
+    return 1U;
+}
+
 void WS2813E_Refresh(void)
 {
-    WS2813E_EncodePixels(pixel_buffer, pwm_buffer);
-    HAL_TIM_PWM_Start_DMA(&htimx, TIM_CHANNEL_x,
-                          (uint32_t *)pwm_buffer, pwm_length);
+    if (rgb_htim == NULL) return;
+
+    uint16_t length = WS2813E_EncodePixelsAndReset(
+        pixel_buffer, RGB_PIXEL_COUNT,
+        pwm_buffer, RGB_PWM_BUFFER_LENGTH);
+
+    rgb_dma_done = 0U;
+    if (HAL_TIM_PWM_Start_DMA(rgb_htim, RGB_TIM_CHANNEL,
+                              (uint32_t *)pwm_buffer, length) != HAL_OK)
+    {
+        rgb_dma_done = 1U;
+        Debug_ReportRgbDmaError();
+    }
+}
+
+void HAL_TIM_PWM_PulseFinishedCallback(TIM_HandleTypeDef *htim)
+{
+    if (htim == rgb_htim)
+    {
+        (void)HAL_TIM_PWM_Stop_DMA(htim, RGB_TIM_CHANNEL);
+        rgb_dma_done = 1U;
+    }
+}
+
+RGB_Color_t color = {
+    .red = App_GetRed(),
+    .green = App_GetGreen(),
+    .blue = App_GetBlue(),
+};
+if (WS2813E_SetPixel(App_GetPixelIndex(), color) && rgb_dma_done)
+{
+    WS2813E_Refresh();
 }
 ```
+
+`WS2813E_EncodePixelsAndReset()` 负责颜色顺序、bit 对应 CCR 和 reset/latch 低电平槽。颜色顺序、灯珠数量、PWM 计数和纳秒级时序必须依据具体器件手册并用示波器实测。
 
 ## 调试方法
 

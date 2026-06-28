@@ -138,11 +138,45 @@ DWT 给出的是 CPU 走过多少周期，而不是抽象的“延时”。这�
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-uint32_t start = DWT->CYCCNT;
-Target_Function();
-uint32_t cycles = DWT->CYCCNT - start;
-float time_us = (float)cycles * 1000000.0f / SystemCoreClock;
+/* CMSIS / Cortex-M 内核调试组件操作，不是 HAL API。 */
+static void DWT_Delay_Init(void)
+{
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0U;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+}
+
+static uint32_t DWT_GetCycles(void)
+{
+    return DWT->CYCCNT;
+}
+
+static void DWT_Delay_us(uint32_t us)
+{
+    uint32_t cycles_per_us = SystemCoreClock / 1000000U;
+    uint32_t wait_cycles = cycles_per_us * us;
+    uint32_t start = DWT_GetCycles();
+
+    while ((uint32_t)(DWT_GetCycles() - start) < wait_cycles)
+    {
+        /* 短时间忙等；不要用于长延时。 */
+    }
+}
+
+static uint32_t Measure_TargetCycles(void)
+{
+    uint32_t start = DWT_GetCycles();
+    Target_Function();
+    return (uint32_t)(DWT_GetCycles() - start);
+}
+
+/* main() 中 SystemClock_Config() 完成后调用。 */
+DWT_Delay_Init();
+uint32_t cycles = Measure_TargetCycles();
+float time_us = (float)cycles * 1000000.0f / (float)SystemCoreClock;
 ```
+
+`SystemCoreClock` 必须与真实 HCLK 一致。DWT 支持情况、低功耗行为和中断对测量的影响以实际 Cortex-M 内核与调试配置为准。
 
 ## 调试方法
 

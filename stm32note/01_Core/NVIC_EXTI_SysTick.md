@@ -148,16 +148,43 @@ CubeMX 配置 GPIO_EXTI 和边沿
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-volatile uint8_t key_event;
+static volatile uint8_t key_event;
+static uint32_t heartbeat_tick;
+
+/* 常见位置：Core/Src/stm32f1xx_it.c。IRQ 名称以 CubeMX 生成结果为准。 */
+void EXTI0_IRQHandler(void)
+{
+    HAL_GPIO_EXTI_IRQHandler(KEY_Pin);
+}
 
 void HAL_GPIO_EXTI_Callback(uint16_t pin)
 {
     if (pin == KEY_Pin)
     {
-        key_event = 1;
+        key_event = 1U;
+    }
+}
+
+/* Core/Src/main.c 的 while(1) 中：用 tick 实现非阻塞周期任务。 */
+void App_Task(void)
+{
+    uint32_t now = HAL_GetTick();
+
+    if ((uint32_t)(now - heartbeat_tick) >= HEARTBEAT_INTERVAL_MS)
+    {
+        heartbeat_tick = now;
+        HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+    }
+
+    if (key_event)
+    {
+        key_event = 0U;
+        App_OnKeyPressed();
     }
 }
 ```
+
+反例：不要在 `HAL_GPIO_EXTI_Callback()` 中长时间调用 `HAL_Delay()`、打印大量日志或等待按键松手。IRQ 名称、Pin 和优先级以 CubeMX 生成文件为准。
 
 ## 调试方法
 

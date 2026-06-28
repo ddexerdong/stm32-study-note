@@ -151,16 +151,94 @@ CubeMX 选择外设 DMA 请求、方向、宽度、Normal/Circular
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-static uint8_t rx_dma[128];
+/* 正确：DMA buffer 必须在传输期间持续有效。 */
+static uint8_t uart_dma_buffer[UART_DMA_BUFFER_SIZE];
+static uint32_t adc_dma_buffer[ADC_DMA_SAMPLE_COUNT];
+static uint8_t ring_buffer[RING_BUFFER_SIZE];
+static volatile uint16_t ring_write_index;
+static volatile uint8_t uart_rx_event;
+static volatile uint8_t adc_half_event;
+static volatile uint8_t adc_full_event;
 
-HAL_UARTEx_ReceiveToIdle_DMA(&huart1, rx_dma, sizeof(rx_dma));
+/* 错误示例：不要在函数内定义局部数组后启动长期 DMA。 */
+static void Wrong_LocalBuffer_Example(void)
+{
+    /* uint8_t local[LOCAL_SIZE];
+       HAL_UART_Receive_DMA(&huart1, local, sizeof(local)); */
+}
+
+static void RingBuffer_Push(const uint8_t *data, uint16_t length)
+{
+    for (uint16_t i = 0U; i < length; ++i)
+    {
+        ring_buffer[ring_write_index] = data[i];
+        ring_write_index = (ring_write_index + 1U) % RING_BUFFER_SIZE;
+    }
+}
+
+static uint16_t UART_DMA_ReceivedCount(void)
+{
+    uint16_t remaining = (uint16_t)__HAL_DMA_GET_COUNTER(huart1.hdmarx);
+    return (uint16_t)(UART_DMA_BUFFER_SIZE - remaining);
+}
+
+static uint8_t DMA_StartAll(void)
+{
+    if (HAL_UARTEx_ReceiveToIdle_DMA(&huart1, uart_dma_buffer,
+                                     UART_DMA_BUFFER_SIZE) != HAL_OK)
+    {
+        return 0U;
+    }
+    if (HAL_ADC_Start_DMA(&hadc1, adc_dma_buffer,
+                          ADC_DMA_SAMPLE_COUNT) != HAL_OK)
+    {
+        HAL_UART_DMAStop(&huart1);
+        return 0U;
+    }
+    return 1U;
+}
 
 void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
 {
-    rx_size = size;
-    rx_ready = 1;
+    if (huart->Instance == USART1)
+    {
+        RingBuffer_Push(uart_dma_buffer, size);
+        uart_rx_event = 1U;
+    }
+}
+
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef *hadc)
+{
+    if (hadc->Instance == ADC1) adc_half_event = 1U;
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+    if (hadc->Instance == ADC1) adc_full_event = 1U;
+}
+
+if (!DMA_StartAll())
+{
+    Error_Handler();
+}
+
+while (1)
+{
+    if (uart_rx_event)
+    {
+        uart_rx_event = 0U;
+        App_ParseRingBuffer();
+    }
+    if (adc_half_event || adc_full_event)
+    {
+        adc_half_event = adc_full_event = 0U;
+        App_ProcessAdcDma(adc_dma_buffer, ADC_DMA_SAMPLE_COUNT);
+    }
+    Debug_WatchDmaRemaining(UART_DMA_ReceivedCount());
 }
 ```
+
+`UART_DMA_BUFFER_SIZE`、DMA Normal/Circular 模式和回调后的重启策略以实际 CubeF1 版本与 CubeMX 配置为准。ring buffer 示例只展示写入路径，正式项目还需读索引、满/空判断和并发保护。
 
 ## 调试方法
 

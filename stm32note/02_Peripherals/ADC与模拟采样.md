@@ -158,14 +158,78 @@ DMA：MX_DMA_Init()
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
-HAL_ADCEx_Calibration_Start(&hadc1);
-HAL_ADC_Start(&hadc1);
-if (HAL_ADC_PollForConversion(&hadc1, 10) == HAL_OK)
+static uint32_t adc_dma_buffer[ADC_CHANNEL_COUNT];
+static volatile uint8_t adc_dma_ready;
+
+static uint8_t ADC_ReadOnce(uint32_t *raw)
 {
-    uint32_t raw = HAL_ADC_GetValue(&hadc1);
-    float voltage = (float)raw * vref / 4095.0f;
+    if ((raw == NULL) || (HAL_ADC_Start(&hadc1) != HAL_OK))
+    {
+        return 0U;
+    }
+    if (HAL_ADC_PollForConversion(&hadc1, ADC_POLL_TIMEOUT_MS) != HAL_OK)
+    {
+        return 0U;
+    }
+    *raw = HAL_ADC_GetValue(&hadc1);
+    return 1U;
+}
+
+static float ADC_RawToVoltage(uint32_t raw, float vref)
+{
+    return ((float)raw * vref) / ADC_FULL_SCALE_COUNTS;
+}
+
+static uint32_t MovingAverage_Push(uint32_t sample)
+{
+    static uint32_t history[FILTER_WINDOW_SIZE];
+    static uint32_t sum;
+    static uint32_t index;
+
+    sum -= history[index];
+    history[index] = sample;
+    sum += sample;
+    index = (index + 1U) % FILTER_WINDOW_SIZE;
+    return sum / FILTER_WINDOW_SIZE;
+}
+
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc)
+{
+    if (hadc->Instance == ADC1)
+    {
+        adc_dma_ready = 1U;
+    }
+}
+
+if (HAL_ADCEx_Calibration_Start(&hadc1) != HAL_OK)
+{
+    Error_Handler();
+}
+
+uint32_t single_raw;
+if (ADC_ReadOnce(&single_raw))
+{
+    float voltage = ADC_RawToVoltage(single_raw, measured_vref);
+    App_ReportVoltage(voltage);
+}
+
+if (HAL_ADC_Start_DMA(&hadc1, adc_dma_buffer, ADC_CHANNEL_COUNT) != HAL_OK)
+{
+    Error_Handler();
+}
+
+while (1)
+{
+    if (adc_dma_ready)
+    {
+        adc_dma_ready = 0U;
+        uint32_t filtered = MovingAverage_Push(adc_dma_buffer[ADC_RANK1_INDEX]);
+        App_ProcessAdcChannels(adc_dma_buffer, ADC_CHANNEL_COUNT, filtered);
+    }
 }
 ```
+
+`adc_dma_buffer[0]` 对应 Rank 1，后续下标按 CubeMX Rank 顺序排列。`ADC_FULL_SCALE_COUNTS`、VREF、滤波窗口和通道数量以实际分辨率、电路与采样目标为准。
 
 ## 调试方法
 

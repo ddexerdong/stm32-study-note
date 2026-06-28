@@ -143,17 +143,76 @@ GPIO 配置为输出
 
 ## 最小驱动框架
 
-> 代码性质：示例框架，用于理解流程，不能保证直接编译。
+> 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
 
 ```c
+static void DHT11_PinOutput(void)
+{
+    GPIO_InitTypeDef init = {0};
+    init.Pin = DHT11_Pin;
+    init.Mode = GPIO_MODE_OUTPUT_PP;
+    init.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(DHT11_GPIO_Port, &init);
+}
+
+static void DHT11_PinInput(void)
+{
+    GPIO_InitTypeDef init = {0};
+    init.Pin = DHT11_Pin;
+    init.Mode = GPIO_MODE_INPUT;
+    init.Pull = DHT11_INPUT_PULL;
+    HAL_GPIO_Init(DHT11_GPIO_Port, &init);
+}
+
+static uint8_t DHT11_WaitLevel(GPIO_PinState level, uint32_t timeout_cycles)
+{
+    uint32_t start = DWT->CYCCNT;
+    while (HAL_GPIO_ReadPin(DHT11_GPIO_Port, DHT11_Pin) != level)
+    {
+        if ((uint32_t)(DWT->CYCCNT - start) >= timeout_cycles) return 0U;
+    }
+    return 1U;
+}
+
+static uint8_t DHT11_StartSignal(void)
+{
+    DHT11_PinOutput();
+    HAL_GPIO_WritePin(DHT11_GPIO_Port, DHT11_Pin, GPIO_PIN_RESET);
+    DWT_Delay_us(DHT11_START_LOW_US);
+    HAL_GPIO_WritePin(DHT11_GPIO_Port, DHT11_Pin, GPIO_PIN_SET);
+    DHT11_PinInput();
+    return DHT11_WaitLevel(GPIO_PIN_RESET, DHT11_RESPONSE_TIMEOUT_CYCLES);
+}
+
+static uint8_t DHT11_ReadBit(uint8_t *bit)
+{
+    if (!DHT11_WaitLevel(GPIO_PIN_SET, DHT11_BIT_TIMEOUT_CYCLES)) return 0U;
+    uint32_t high_start = DWT->CYCCNT;
+    if (!DHT11_WaitLevel(GPIO_PIN_RESET, DHT11_BIT_TIMEOUT_CYCLES)) return 0U;
+    uint32_t high_cycles = (uint32_t)(DWT->CYCCNT - high_start);
+    *bit = high_cycles > DHT11_ONE_THRESHOLD_CYCLES;
+    return 1U;
+}
+
 uint8_t DHT11_Read(DHT11_Data_t *out)
 {
     uint8_t raw[5] = {0};
-    /* 时序、阈值和 GPIO 方向切换需按手册/视频实现。 */
-    if ((uint8_t)(raw[0] + raw[1] + raw[2] + raw[3]) != raw[4]) return 0;
+
+    if ((out == NULL) || !DHT11_StartSignal()) return 0U;
+    for (uint32_t i = 0U; i < DHT11_FRAME_BITS; ++i)
+    {
+        uint8_t bit;
+        if (!DHT11_ReadBit(&bit)) return 0U;
+        raw[i / 8U] = (uint8_t)((raw[i / 8U] << 1U) | bit);
+    }
+
+    uint8_t checksum = (uint8_t)(raw[0] + raw[1] + raw[2] + raw[3]);
+    if (checksum != raw[4]) return 0U;
     return DHT11_Decode(raw, out);
 }
 ```
+
+`DHT11_START_LOW_US`、响应/bit 超时和 `DHT11_ONE_THRESHOLD_CYCLES` 必须按模块手册、系统时钟、逻辑分析仪和视频实测确定。DWT/CYCCNT 是 CMSIS/内核组件，不是 HAL API。
 
 ## 调试方法
 

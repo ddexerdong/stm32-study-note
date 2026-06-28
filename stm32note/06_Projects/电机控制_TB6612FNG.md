@@ -126,23 +126,82 @@ MX_GPIO_Init()
 
 ## BSP 核心框架
 
-> 代码性质：示例框架，用于理解流程，不能保证直接编译。
+> 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
 
 ```c
-void Motor_Init(void);
-void Motor_SetSpeed(int16_t percent);
-void Motor_Forward(void);
-void Motor_Backward(void);
-void Motor_Stop(void);
+typedef enum
+{
+    MOTOR_STOPPED = 0,
+    MOTOR_FORWARD,
+    MOTOR_BACKWARD
+} MotorDirection_t;
+
+static MotorDirection_t motor_direction;
+static uint32_t motor_speed_percent;
+
+static uint32_t Motor_PercentToCcr(uint32_t percent)
+{
+    if (percent > MOTOR_MAX_PERCENT) percent = MOTOR_MAX_PERCENT;
+    return ((htim3.Init.Period + 1U) * percent) / MOTOR_MAX_PERCENT;
+}
+
+void Motor_Stop(void)
+{
+    __HAL_TIM_SET_COMPARE(&htim3, MOTOR_TIM_CHANNEL, 0U);
+    HAL_GPIO_WritePin(MOTOR_IN1_GPIO_Port, MOTOR_IN1_Pin,
+                      MOTOR_STOP_IN1_LEVEL);
+    HAL_GPIO_WritePin(MOTOR_IN2_GPIO_Port, MOTOR_IN2_Pin,
+                      MOTOR_STOP_IN2_LEVEL);
+    motor_direction = MOTOR_STOPPED;
+    motor_speed_percent = 0U;
+}
+
+void Motor_Init(void)
+{
+    HAL_GPIO_WritePin(MOTOR_STBY_GPIO_Port, MOTOR_STBY_Pin,
+                      MOTOR_STBY_DISABLE_LEVEL);
+    Motor_Stop();
+    if (HAL_TIM_PWM_Start(&htim3, MOTOR_TIM_CHANNEL) != HAL_OK)
+        Error_Handler();
+    HAL_GPIO_WritePin(MOTOR_STBY_GPIO_Port, MOTOR_STBY_Pin,
+                      MOTOR_STBY_ENABLE_LEVEL);
+}
+
+void Motor_Forward(void)
+{
+    Motor_Stop();
+    Motor_WaitSafeDirectionChange();
+    HAL_GPIO_WritePin(MOTOR_IN1_GPIO_Port, MOTOR_IN1_Pin,
+                      MOTOR_FORWARD_IN1_LEVEL);
+    HAL_GPIO_WritePin(MOTOR_IN2_GPIO_Port, MOTOR_IN2_Pin,
+                      MOTOR_FORWARD_IN2_LEVEL);
+    motor_direction = MOTOR_FORWARD;
+}
+
+void Motor_Backward(void)
+{
+    Motor_Stop();
+    Motor_WaitSafeDirectionChange();
+    HAL_GPIO_WritePin(MOTOR_IN1_GPIO_Port, MOTOR_IN1_Pin,
+                      MOTOR_BACKWARD_IN1_LEVEL);
+    HAL_GPIO_WritePin(MOTOR_IN2_GPIO_Port, MOTOR_IN2_Pin,
+                      MOTOR_BACKWARD_IN2_LEVEL);
+    motor_direction = MOTOR_BACKWARD;
+}
 
 void Motor_SetSpeed(int16_t percent)
 {
-    percent = Clamp(percent, -100, 100);
-    Motor_SetDirectionFromSign(percent);
-    __HAL_TIM_SET_COMPARE(&htimx, TIM_CHANNEL_x,
-                          PercentToCcr(Abs(percent)));
+    percent = Clamp(percent, -MOTOR_MAX_PERCENT, MOTOR_MAX_PERCENT);
+    if (percent > 0 && motor_direction != MOTOR_FORWARD) Motor_Forward();
+    if (percent < 0 && motor_direction != MOTOR_BACKWARD) Motor_Backward();
+
+    motor_speed_percent = (uint32_t)Abs(percent);
+    __HAL_TIM_SET_COMPARE(&htim3, MOTOR_TIM_CHANNEL,
+                          Motor_PercentToCcr(motor_speed_percent));
 }
 ```
+
+IN1/IN2/STBY 电平和停止/制动真值表必须按 TB6612FNG 手册与模块原理图核对。示例先停机再换向，实际安全等待应改为非阻塞状态机并结合机械负载实测。
 
 ## 调试顺序
 

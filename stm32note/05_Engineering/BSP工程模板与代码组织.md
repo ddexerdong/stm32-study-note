@@ -136,22 +136,65 @@ HAL_Init() / SystemClock_Config()
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
 
 ```c
+/* BSP/Inc/bsp.h：只暴露稳定接口。 */
+typedef enum
+{
+    BSP_OK = 0,
+    BSP_ERROR
+} BSP_Status_t;
+
+BSP_Status_t BSP_Init(void);
+void BSP_Task(void);
+void BSP_OnUartRx(const uint8_t *data, uint16_t length);
+
+/* BSP/Src/bsp.c：持有 HAL 句柄依赖和模块状态。 */
+BSP_Status_t BSP_Init(void)
+{
+    if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK) return BSP_ERROR;
+    if (HAL_UARTEx_ReceiveToIdle_DMA(&huart1, bsp_rx_buffer,
+                                     sizeof(bsp_rx_buffer)) != HAL_OK)
+        return BSP_ERROR;
+    return BSP_OK;
+}
+
+void BSP_Task(void)
+{
+    Sensor_Task();
+    Communication_Task();
+    Actuator_Task();
+}
+
+/* HAL 回调只把事件交给 BSP，不直接执行长业务。 */
+void HAL_UARTEx_RxEventCallback(UART_HandleTypeDef *huart, uint16_t size)
+{
+    if (huart->Instance == USART1)
+    {
+        BSP_OnUartRx(bsp_rx_buffer, size);
+    }
+}
+
+/* Core/Src/main.c：只保留系统启动和高层调度。 */
 int main(void)
 {
-    HAL_Init();
+    if (HAL_Init() != HAL_OK) Error_Handler();
     SystemClock_Config();
     MX_GPIO_Init();
+    MX_DMA_Init();
+    MX_TIM2_Init();
     MX_USART1_UART_Init();
 
-    BSP_Init();
+    if (BSP_Init() != BSP_OK) Error_Handler();
     App_Init();
 
     while (1)
     {
+        BSP_Task();
         App_Task();
     }
 }
 ```
+
+示例把 `.h`、BSP `.c`、HAL 回调和 `main.c` 放在同一代码块展示边界；真实工程应拆到对应文件。句柄、外设实例和初始化顺序以 CubeMX 生成结果为准。
 
 ## 调试方法
 
