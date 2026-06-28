@@ -18,7 +18,27 @@ tags:
 >
 > 原始来源：[[01_准备与基础认知]]、[[06_定时器PWM]]。
 
-## 时钟层级
+---
+
+## 本节目标
+
+- 能从 HSI/HSE/PLL 推导 SYSCLK、HCLK、PCLK1/PCLK2
+- 能解释外设时钟使能和 TIM x2 规则
+- 能从串口乱码或定时偏差反查时钟
+
+## 核心概念
+
+### 知识地图
+
+| 名词 | 工程含义 |
+|---|---|
+| RCC | 复位与时钟控制模块 |
+| SYSCLK | 系统主时钟源选择结果 |
+| HCLK | AHB/内核总线时钟 |
+| PCLK1/PCLK2 | APB1/APB2 外设时钟 |
+| PLL | 对输入时钟倍频形成目标频率 |
+
+### 时钟层级
 
 | 名词 | 工程含义 |
 |---|---|
@@ -29,7 +49,7 @@ tags:
 | AHB | 内核、存储器和 DMA 等使用的高速总线 |
 | APB1 / APB2 | 不同外设所在的外设总线 |
 
-## 工程链路
+### 工程链路
 
 ```text
 HSI/HSE -> PLL -> SYSCLK -> AHB -> APB1/APB2 -> 外设时钟
@@ -37,41 +57,9 @@ HSI/HSE -> PLL -> SYSCLK -> AHB -> APB1/APB2 -> 外设时钟
 
 外设寄存器在初始化前通常需要先使能对应 RCC 时钟。HAL/CubeMX 会生成时钟使能代码，但调试时仍要知道外设挂在哪条总线上。
 
-## TIM 时钟提醒
+### TIM 时钟提醒
 
 当 APB 分频不为 1 时，某些 TIM 输入时钟可能是对应 APB 时钟的 2 倍。具体计算见 [[TIM定时器体系]]。
-
-## 调试方法
-
-- 从 CubeMX Clock Configuration 记录 SYSCLK、HCLK、PCLK1、PCLK2。
-- 不要把系统主频直接当成所有外设时钟。
-- 延时、串口、ADC、TIM 同时异常时，优先回查时钟树。
-
-具体晶振参数以实际开发板原理图和 CubeMX 配置为准。
-
-## 关联知识
-
-- [[STM32体系结构与启动流程]]
-- [[TIM定时器体系]]
-- [[ADC与模拟采样]]
-
----
-
-## 本节目标
-
-- 能从 HSI/HSE/PLL 推导 SYSCLK、HCLK、PCLK1/PCLK2
-- 能解释外设时钟使能和 TIM x2 规则
-- 能从串口乱码或定时偏差反查时钟
-
-## 知识地图
-
-| 名词 | 工程含义 |
-|---|---|
-| RCC | 复位与时钟控制模块 |
-| SYSCLK | 系统主时钟源选择结果 |
-| HCLK | AHB/内核总线时钟 |
-| PCLK1/PCLK2 | APB1/APB2 外设时钟 |
-| PLL | 对输入时钟倍频形成目标频率 |
 
 ## 本质理解
 
@@ -92,7 +80,7 @@ HSI/HSE -> PLL -> SYSCLK -> AHB -> APB1/APB2 -> 外设时钟
 3. 确认 PCLK1 不超过器件限制，ADC 时钟满足参考手册要求。
 4. 生成代码后查看 `SystemClock_Config()` 的 Oscillator/Clock 配置结构体。
 
-## 常用 HAL API
+## HAL / CMSIS / CubeMX 相关接口
 
 ### API 速查
 
@@ -166,6 +154,14 @@ ClockSnapshot_t clock_now = Clock_ReadSnapshot();
 
 用调试器或串口观察 `clock_now`，再结合 APB 分频判断 TIM 实际时钟。外部晶振和目标主频以实际开发板原理图和 CubeMX Clock Configuration 为准。
 
+## 调试方法
+
+- 从 CubeMX Clock Configuration 记录 SYSCLK、HCLK、PCLK1、PCLK2。
+- 不要把系统主频直接当成所有外设时钟。
+- 延时、串口、ADC、TIM 同时异常时，优先回查时钟树。
+
+具体晶振参数以实际开发板原理图和 CubeMX 配置为准。
+
 ## 常见坑
 
 | 现象 | 常见原因 | 处理方法 |
@@ -181,12 +177,14 @@ ClockSnapshot_t clock_now = Clock_ReadSnapshot();
 - [[TIM定时器体系]] 使用 TIMx_CLK。
 - [[ADC与模拟采样]] 依赖 ADC 时钟和参考电压。
 - [[USART与串口协议]] 的波特率由 PCLK 派生。
+- [[STM32体系结构与启动流程]] 说明系统时钟在启动链路中的位置。
 
 ## 复习检查清单
 
-- [ ] 能否不用看代码说清本章数据流和硬件链路？
-- [ ] 能否在 CubeMX 中完成最小配置并说明每个关键选项？
-- [ ] 能否写出初始化、启动和回调/轮询的最小框架？
-- [ ] 能否用原始电平、波形、返回值或寄存器证明外设在工作？
-- [ ] 能否按“硬件 -> 时钟/配置 -> Start -> 回调 -> 业务”排查故障？
-- [ ] 能否指出本章哪些参数必须按原理图、手册或实测确认？
+- [ ] 能画出 HSI/HSE、PLL、SYSCLK、AHB 和 APB 的时钟链路。
+- [ ] 能区分 SYSCLK、HCLK、PCLK1、PCLK2 和具体外设时钟。
+- [ ] 能在 CubeMX 中核对振荡源、PLL、总线分频和 ADC 分频。
+- [ ] 能说明为什么 APB 分频会让部分 TIM 时钟出现 x2 关系。
+- [ ] 能使用 RCC 查询接口记录当前系统和总线频率。
+- [ ] 能从串口乱码、TIM 周期偏差或 ADC 异常反查时钟树。
+- [ ] 能说明外部晶振类型、目标主频和 Flash 延时不能照抄其他板卡。

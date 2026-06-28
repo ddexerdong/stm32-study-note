@@ -18,7 +18,27 @@ tags:
 >
 > 原始来源：[[01_准备与基础认知]]、[[02_GPIO与传感器]]。
 
-## GPIO 模式
+---
+
+## 本节目标
+
+- 能按电气需求选择 F103 GPIO 模式
+- 能完成 LED、按键、DO 传感器和蜂鸣器最小实验
+- 能解释 AFIO 重映射与 EXTI 端口选择
+
+## 核心概念
+
+### 知识地图
+
+| 名词 | 工程含义 |
+|---|---|
+| ODR/BSRR | 输出数据与原子置位/复位寄存器 |
+| IDR | 输入数据寄存器 |
+| CRL/CRH | F103 引脚模式与速度配置寄存器 |
+| AFIO | 复用功能、重映射和 EXTI 端口路由 |
+| EXTI | 把引脚边沿变成事件/中断 |
+
+### GPIO 模式
 
 | 模式 | 用途 |
 |---|---|
@@ -28,7 +48,7 @@ tags:
 | 模拟模式 | ADC 输入，关闭不必要的数字输入路径 |
 | 复用功能 | 把引脚交给 USART、TIM、SPI、I2C 等外设 |
 
-## 上拉、下拉与浮空
+### 上拉、下拉与浮空
 
 输入引脚必须有稳定的默认电平。内部上拉/下拉是否适合，取决于外部电路；不要让业务输入长期悬空。
 
@@ -37,15 +57,15 @@ tags:
 - 浮空输入：不提供默认电平，只适合外部电路已可靠驱动的信号。
 - 模拟输入：关闭数字输入路径，供 ADC 等模拟外设使用。
 
-## AFIO 与重映射
+### AFIO 与重映射
 
 AFIO 负责部分复用功能和外部中断线路由。重映射不是“换一个 GPIO 名字”，而是把同一外设信号切换到另一组支持的引脚。
 
-## EXTI 与 GPIO
+### EXTI 与 GPIO
 
 GPIO 负责感知引脚电平；EXTI 负责把特定边沿转换成中断/事件。详细机制见 [[NVIC_EXTI_SysTick]]。
 
-## 常用 HAL API
+## 常用工程接口
 
 ### API 速查
 
@@ -93,34 +113,6 @@ CubeMX 选择 GPIO 模式/EXTI 边沿
 | 响应 GPIO 边沿 | EXTI 配置 + `HAL_GPIO_EXTI_IRQHandler()` + `HAL_GPIO_EXTI_Callback()` |
 | 输出 PWM、USART、SPI 等外设信号 | 配置复用功能并使用对应外设 HAL，不使用 `HAL_GPIO_WritePin()` 生成波形 |
 
-## 调试方法
-
-先确认供电和共地，再检查实际引脚、模式、上下拉、有效电平和复用映射。LED、按键和模块接线以实际开发板原理图和 CubeMX 配置为准。
-
-## 关联知识
-
-- [[数字传感器与LM393]]
-- [[NVIC_EXTI_SysTick]]
-- [[USART与串口协议]]
-
----
-
-## 本节目标
-
-- 能按电气需求选择 F103 GPIO 模式
-- 能完成 LED、按键、DO 传感器和蜂鸣器最小实验
-- 能解释 AFIO 重映射与 EXTI 端口选择
-
-## 知识地图
-
-| 名词 | 工程含义 |
-|---|---|
-| ODR/BSRR | 输出数据与原子置位/复位寄存器 |
-| IDR | 输入数据寄存器 |
-| CRL/CRH | F103 引脚模式与速度配置寄存器 |
-| AFIO | 复用功能、重映射和 EXTI 端口路由 |
-| EXTI | 把引脚边沿变成事件/中断 |
-
 ## 本质理解
 
 GPIO 是芯片和外部电路的边界。代码里的 SET/RESET 必须翻译成真实电压，再翻译成 LED、按键或模块的有效状态。模式选择错误时，业务逻辑写得再对也不会产生正确电气行为。
@@ -143,11 +135,23 @@ GPIO 是芯片和外部电路的边界。代码里的 SET/RESET 必须翻译成�
 
 ## 最小实验 / 最小框架
 
-> 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+### 输出控制
+
+> 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
 
 ```c
-static volatile uint8_t key_exti_event;
+static void Buzzer_Set(uint8_t enabled)
+{
+    HAL_GPIO_WritePin(BUZZER_GPIO_Port, BUZZER_Pin,
+                      enabled ? BUZZER_ON_LEVEL : BUZZER_OFF_LEVEL);
+}
+```
 
+### 输入轮询
+
+> 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
+
+```c
 static uint8_t Key_IsPressed(void)
 {
     return HAL_GPIO_ReadPin(KEY_GPIO_Port, KEY_Pin) == KEY_ACTIVE_LEVEL;
@@ -157,20 +161,6 @@ static uint8_t SensorDO_IsActive(void)
 {
     GPIO_PinState level = HAL_GPIO_ReadPin(SENSOR_DO_GPIO_Port, SENSOR_DO_Pin);
     return level == SENSOR_DO_ACTIVE_LEVEL;
-}
-
-static void Buzzer_Set(uint8_t enabled)
-{
-    HAL_GPIO_WritePin(BUZZER_GPIO_Port, BUZZER_Pin,
-                      enabled ? BUZZER_ON_LEVEL : BUZZER_OFF_LEVEL);
-}
-
-void HAL_GPIO_EXTI_Callback(uint16_t pin)
-{
-    if (pin == KEY_Pin)
-    {
-        key_exti_event = 1U;
-    }
 }
 
 /* Core/Src/main.c：MX_GPIO_Init() 之后进入主循环。 */
@@ -187,16 +177,37 @@ while (1)
     }
 
     Buzzer_Set(SensorDO_IsActive());
+}
+```
 
-    if (key_exti_event)
+### EXTI 事件
+
+> 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
+
+```c
+static volatile uint8_t key_exti_event;
+
+void HAL_GPIO_EXTI_Callback(uint16_t pin)
+{
+    if (pin == KEY_Pin)
     {
-        key_exti_event = 0U;
-        App_OnKeyEvent();
+        key_exti_event = 1U;
     }
+}
+
+/* Core/Src/main.c 的 while(1) 中处理事件。 */
+if (key_exti_event)
+{
+    key_exti_event = 0U;
+    App_OnKeyEvent();
 }
 ```
 
 前提：LED、按键、传感器 DO 和蜂鸣器引脚已由 CubeMX 配置。所有有效电平、上下拉和负载驱动方式以实际开发板原理图为准。
+
+## 调试方法
+
+先确认供电和共地，再检查实际引脚、模式、上下拉、有效电平和复用映射。LED、按键和模块接线以实际开发板原理图和 CubeMX 配置为准。
 
 ## 常见坑
 
@@ -213,13 +224,15 @@ while (1)
 
 - [[NVIC_EXTI_SysTick]] 处理 GPIO 边沿中断。
 - [[ADC与模拟采样]] 使用 GPIO Analog 模式。
+- [[USART与串口协议]] 使用 GPIO 复用和 AFIO 重映射。
 - [[数字传感器与LM393]] 和 [[蜂鸣器与简单执行器]] 是 GPIO 模块案例。
 
 ## 复习检查清单
 
-- [ ] 能否不用看代码说清本章数据流和硬件链路？
-- [ ] 能否在 CubeMX 中完成最小配置并说明每个关键选项？
-- [ ] 能否写出初始化、启动和回调/轮询的最小框架？
-- [ ] 能否用原始电平、波形、返回值或寄存器证明外设在工作？
-- [ ] 能否按“硬件 -> 时钟/配置 -> Start -> 回调 -> 业务”排查故障？
-- [ ] 能否指出本章哪些参数必须按原理图、手册或实测确认？
+- [ ] 能根据外部电路选择输入、推挽、开漏、模拟或复用模式。
+- [ ] 能说明上拉、下拉和浮空输入分别会形成什么默认电平。
+- [ ] 能根据原理图确认 LED、按键、传感器 DO 和蜂鸣器的有效电平。
+- [ ] 能完成按键轮询、消抖、等待松手和数字传感器读取流程。
+- [ ] 能解释 AFIO 重映射与修改普通 GPIO 名称的区别。
+- [ ] 能画出 GPIO 边沿经 EXTI、IRQHandler 到 HAL 回调的路径。
+- [ ] 能按供电、接线、模式、上下拉、复用映射和业务逻辑顺序排错。
