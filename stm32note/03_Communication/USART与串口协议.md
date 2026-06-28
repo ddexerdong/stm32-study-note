@@ -41,10 +41,68 @@ ASCII 是字符到字节值的一种编码；串口工具的“ASCII 发送”�
 
 ## 常用 HAL API
 
-- `HAL_UART_Transmit` / `HAL_UART_Receive`
-- `HAL_UART_Receive_IT`
-- `HAL_UART_Transmit_DMA` / `HAL_UART_Receive_DMA`
-- `HAL_UARTEx_ReceiveToIdle_DMA`
+### API 速查
+
+| HAL 函数 / 宏 | 作用 | 常见位置 |
+|---|---|---|
+| `HAL_UART_Transmit()` | 轮询发送指定长度字节 | 调试打印、短命令发送 |
+| `HAL_UART_Receive()` | 轮询接收固定长度字节 | 最小通信验证 |
+| `HAL_UART_Transmit_IT()` | 中断方式发送一块数据 | 不希望主循环等待的短消息 |
+| `HAL_UART_Receive_IT()` | 中断方式接收固定长度数据 | 单字节命令、固定小帧 |
+| `HAL_UART_Transmit_DMA()` | DMA 发送一块数据 | 大块或低 CPU 占用发送 |
+| `HAL_UART_Receive_DMA()` | DMA 接收固定长度数据 | 连续固定块接收 |
+| `HAL_UARTEx_ReceiveToIdle_DMA()` | 接收至空闲事件或 buffer 满 | 不定长命令/协议帧 |
+| `HAL_UART_RxCpltCallback()` | 固定长度 IT/DMA 接收完成通知 | 用户回调 |
+| `HAL_UARTEx_RxEventCallback()` | Receive-to-Idle 接收事件通知 | 用户回调 |
+| `HAL_UART_ErrorCallback()` | 接收 UART 错误事件 | 错误记录与恢复入口 |
+| `HAL_UART_DMAStop()` | 停止 UART 关联的 DMA 传输 | 超时、切换模式、重启前 |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件 | 参数重点 | 返回值 / 阻塞与常见坑 |
+|---|---|---|---|
+| `HAL_UART_Transmit()` | UART 已初始化 | buffer、字节数、Timeout | 返回 `HAL_StatusTypeDef`；阻塞到完成或超时；Timeout 是等待上限；不要在高频回调中大量发送 |
+| `HAL_UART_Receive()` | RX 接线与帧格式正确 | buffer、长度、Timeout | 返回状态；阻塞到收满或超时；不定长数据会频繁超时；接收字符串需自行补 `\0` |
+| `HAL_UART_Transmit_IT()` | UART NVIC 已启用 | buffer 在完成前保持有效 | 返回状态；非阻塞；发送未完成就修改/释放 buffer；忽略 `HAL_BUSY` |
+| `HAL_UART_Receive_IT()` | UART NVIC 已启用 | buffer、期望长度 | 返回状态；非阻塞；完成后通常要再次调用；收不到指定长度就不进完成回调 |
+| `HAL_UART_Transmit_DMA()` | TX DMA 已关联并开中断 | buffer、长度 | 返回状态；非阻塞；buffer 在完成前被改写；错误恢复时未停 DMA |
+| `HAL_UART_Receive_DMA()` | RX DMA 已关联 | 长期有效 buffer、长度 | 返回状态；非阻塞；固定长度未收满不回完成回调；Normal 模式结束后需重启 |
+| `HAL_UARTEx_ReceiveToIdle_DMA()` | RX DMA 与 UART 中断链完整 | buffer 容量，不是期望帧长 | 返回状态；非阻塞；IDLE 不是协议帧边界；应使用 `RxEventCallback` 的 Size |
+| `HAL_UART_RxCpltCallback()` | 使用固定长度 Receive IT/DMA | UART 句柄 | `void`；中断上下文；和 `RxEventCallback` 混淆；回调后忘记重新启动接收 |
+| `HAL_UARTEx_RxEventCallback()` | 使用 `ReceiveToIdle_IT/DMA` | UART 句柄、本次有效 `Size` | `void`；中断上下文；忽略半满/满/IDLE 等事件差异；直接用 `strlen` 处理二进制 |
+| `HAL_UART_ErrorCallback()` | UART 中断已启用 | UART 句柄，可进一步取错误码 | `void`；中断上下文；只清日志不重建接收链；在回调中阻塞重试 |
+| `HAL_UART_DMAStop()` | UART DMA 正在或可能正在运行 | UART 句柄 | 返回状态；同步停止；停止后未重置协议/buffer 状态；无条件频繁调用 |
+
+### 典型调用顺序
+
+```text
+固定长度 IT：MX_USARTx_UART_Init()
+-> 定义静态/全局接收 buffer
+-> HAL_UART_Receive_IT()
+-> HAL_UART_RxCpltCallback()
+-> 复制/发布数据
+-> 再次 HAL_UART_Receive_IT()
+
+不定长 DMA：MX_DMA_Init()
+-> MX_USARTx_UART_Init()
+-> HAL_UARTEx_ReceiveToIdle_DMA()
+-> HAL_UARTEx_RxEventCallback(huart, Size)
+-> 将 Size 个字节送入 ring buffer/解析器
+-> 按所用 DMA 模式确认是否需要重启
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| 简单调试打印 | `HAL_UART_Transmit()` 或基于它的 `printf` 重定向 |
+| 最小阻塞收发验证 | `HAL_UART_Transmit()` / `HAL_UART_Receive()` |
+| 接收固定长度少量数据 | `HAL_UART_Receive_IT()` |
+| 固定长度大块数据 | `HAL_UART_Receive_DMA()` |
+| 接收不定长数据帧 | `HAL_UARTEx_ReceiveToIdle_DMA()` + ring buffer/状态机 |
+| 发生 DMA 接收错误需重建链路 | 记录错误 -> `HAL_UART_DMAStop()` -> 清业务状态 -> 重新启动 |
+
+> CubeF1 版本提醒：旧版 HAL 可能没有 `HAL_UARTEx_ReceiveToIdle_DMA()`。使用前先查本地 `stm32f1xx_hal_uart.h`；没有该接口时，用普通 DMA + IDLE 中断或中断接收状态机替代。
 
 ## 工程主题
 

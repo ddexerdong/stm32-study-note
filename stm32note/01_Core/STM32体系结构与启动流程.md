@@ -103,12 +103,46 @@ MCU 上电后不会直接“运行 main”。内核先从固定位置取得栈�
 
 ## 常用 HAL API
 
-| API / 对象 | 作用 | 常见位置 |
-|---|---|---|
-| `HAL_Init` | 初始化 HAL、NVIC 分组和 tick | main 开头 |
-| `SystemCoreClockUpdate` | 更新系统时钟变量 | 时钟变化后 |
-| `HAL_GetTick` | 读取 HAL 毫秒时基 | 超时和非阻塞逻辑 |
-| `NVIC_SystemReset` | 触发系统复位 | 受控恢复场景 |
+### API 速查
+
+| 接口 | 类型 | 解决什么问题 | 常见调用位置 |
+|---|---|---|---|
+| `HAL_Init()` | HAL API | 初始化 HAL 状态、默认 tick 和基础中断配置 | `main()` 入口 |
+| `SystemCoreClockUpdate()` | CMSIS 系统函数，非 HAL API | 按当前 RCC 配置刷新 `SystemCoreClock` | 手动改时钟后 |
+| `HAL_GetTick()` | HAL API | 获取毫秒时基 | 超时和任务节拍 |
+| `NVIC_SystemReset()` | CMSIS 内核接口，非 HAL API | 请求系统复位 | 受控故障恢复 |
+
+### 使用注意
+
+| 接口 | 前置条件 | 返回值 / 阻塞 | 常见坑 |
+|---|---|---|---|
+| `HAL_Init()` | C 运行环境已准备 | 返回 `HAL_StatusTypeDef`；同步初始化 | 与 `SystemInit()` 或外设 `MX_Init` 混淆 |
+| `SystemCoreClockUpdate()` | RCC 配置已稳定 | `void`；同步计算 | 只改时钟寄存器却不更新变量，延时/换算错误 |
+| `HAL_GetTick()` | HAL tick 正常运行 | 返回 `uint32_t`；非阻塞 | 在 tick 停止时仍依赖它做超时 |
+| `NVIC_SystemReset()` | 关键数据已安全处理 | 不返回；触发复位 | 在未保存状态时直接复位；把复位当故障根治 |
+
+### 典型调用顺序
+
+```text
+上电/复位
+-> 向量表取得 MSP 和 Reset_Handler
+-> SystemInit()（CMSIS 系统层）
+-> C 运行环境初始化
+-> main()
+-> HAL_Init()
+-> SystemClock_Config()
+-> MX_xxx_Init()
+-> Start/Receive API
+```
+
+### 什么时候用哪个接口？
+
+| 场景 | 推荐接口 |
+|---|---|
+| HAL 工程入口初始化 | `HAL_Init()` |
+| 手工修改系统时钟后更新频率变量 | `SystemCoreClockUpdate()` |
+| 普通超时 | `HAL_GetTick()` |
+| 无法恢复且已完成安全处理 | `NVIC_SystemReset()` |
 
 ## 最小实验 / 最小框架
 

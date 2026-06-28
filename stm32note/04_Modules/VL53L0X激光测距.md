@@ -94,14 +94,39 @@ I2C ACK
 3. 先串口打印库返回码
 4. 不手写未知寄存器序列
 
-## 常用 HAL API
+## 本模块依赖的 HAL 层
 
-| API | 用途 |
+| 模块动作 | 依赖 HAL | 说明 |
+|---|---|---|
+| 确认 I2C 地址 ACK | `HAL_I2C_IsDeviceReady()` | 只验证总线层；不能替代厂商 API 初始化 |
+| 适配厂商库的写事务 | `HAL_I2C_Master_Transmit()` 或经验证的 `HAL_I2C_Mem_Write()` | VL53L0X 寄存器/事务格式由所用官方库适配层决定，不默认地址宽度 |
+| 适配厂商库的读事务 | `HAL_I2C_Master_Transmit()` + `HAL_I2C_Master_Receive()` | 必须与厂商平台接口和寄存器寻址方式一致 |
+| 经验证的寄存器式读取 | `HAL_I2C_Mem_Read()` | 仅在适配层明确匹配该寻址模型时使用 |
+| 数据就绪/测距超时 | `HAL_GetTick()` | 毫秒级状态机超时，避免无限等待 |
+| 控制 XSHUT | `HAL_GPIO_WritePin()` | 可选；有效电平、连接和上电顺序以模块原理图为准 |
+
+HAL 只承担 I2C/GPIO 适配。初始化表、测距模式、数据就绪状态、距离有效性和错误码属于 ST 官方 VL53L0X API/模块驱动，不应凭 HAL 函数猜测。
+
+### 典型调用顺序
+
+```text
+可选 XSHUT 复位/上电
+-> MX_I2Cx_Init()
+-> HAL_I2C_IsDeviceReady()
+-> 调用已确认来源的 VL53L0X 初始化 API
+-> 启动测距
+-> HAL_GetTick() 保护数据就绪等待
+-> 读取距离和状态码
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
 |---|---|
-| `HAL_I2C_IsDeviceReady` | 基础 ACK 验证 |
-| `HAL_I2C_Mem_Read/Write` | 库底层 I2C 适配 |
-| `HAL_GetTick` | 数据就绪超时 |
-| `HAL_GPIO_WritePin` | 可选 XSHUT 控制 |
+| 只确认 I2C 电气/地址 | `HAL_I2C_IsDeviceReady()` |
+| 厂商库底层平台适配 | 严格按平台接口实现 I2C Tx/Rx，不自行猜寄存器序列 |
+| 防止测距状态机卡死 | `HAL_GetTick()` 超时 |
+| 多传感器地址管理 | 经原理图确认后用 XSHUT GPIO 逐个启动 |
 
 ## Bring-up 顺序
 

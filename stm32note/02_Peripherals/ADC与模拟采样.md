@@ -98,14 +98,60 @@ ADC 只测电压，不认识温度、湿度或浓度。可信的数据链必须�
 
 ## 常用 HAL API
 
-| API / 对象 | 作用 | 常见位置 |
+### API 速查
+
+| HAL 函数 / 宏 | 作用 | 常见位置 |
 |---|---|---|
-| `HAL_ADCEx_Calibration_Start` | 执行 F1 ADC 校准 | 启动前 |
-| `HAL_ADC_Start` | 启动转换 | 轮询/外部触发 |
-| `HAL_ADC_PollForConversion` | 等待完成 | 最小实验 |
-| `HAL_ADC_GetValue` | 读取结果 | 转换完成后 |
-| `HAL_ADC_Start_DMA` | 启动 ADC DMA | 连续多通道 |
-| `HAL_ADC_ConvCpltCallback` | 转换完成回调 | 中断/DMA |
+| `HAL_ADCEx_Calibration_Start()` | 执行 STM32F1 ADC 校准 | 初始化后、首次采样前 |
+| `HAL_ADC_Start()` | 启动轮询或外部触发转换流程 | 采样前 |
+| `HAL_ADC_PollForConversion()` | 阻塞等待转换完成 | 单通道最小实验 |
+| `HAL_ADC_GetValue()` | 读取 ADC 数据寄存器结果 | Poll 成功后 |
+| `HAL_ADC_Start_IT()` | 启动 ADC 转换完成中断 | 低频事件采样 |
+| `HAL_ADC_Start_DMA()` | 启动 ADC 并把结果搬入数组 | 连续/多通道采样 |
+| `HAL_ADC_Stop_DMA()` | 停止 ADC DMA 采集 | 模式切换、停机 |
+| `HAL_ADC_ConvHalfCpltCallback()` | 通知 DMA 前半区可处理 | 双半区/流式处理 |
+| `HAL_ADC_ConvCpltCallback()` | 通知整缓冲区或后半区完成 | DMA/IT 完成事件 |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件 | 参数重点 | 返回值 / 阻塞与常见坑 |
+|---|---|---|---|
+| `HAL_ADCEx_Calibration_Start()` | ADC 初始化完成且空闲 | ADC 句柄 | 返回 `HAL_StatusTypeDef`；同步等待；忘记检查返回值；采样过程中调用 |
+| `HAL_ADC_Start()` | 通道、Rank、触发方式已配置 | ADC 句柄 | 返回状态；启动非阻塞；外部触发模式下调用后仍需等待触发事件 |
+| `HAL_ADC_PollForConversion()` | 已 `HAL_ADC_Start()` | ADC 句柄、超时 | 返回状态；阻塞；超时无限大导致程序卡住；多通道扫描时误解每次 Poll 的含义 |
+| `HAL_ADC_GetValue()` | 转换完成 | ADC 句柄 | 返回 `uint32_t`；非阻塞；未完成就读旧值；直接把 raw 当物理量 |
+| `HAL_ADC_Start_IT()` | ADC NVIC 已启用 | ADC 句柄 | 返回状态；非阻塞；扫描多通道时中断粒度需结合 F1 HAL 行为确认 |
+| `HAL_ADC_Start_DMA()` | DMA 已配置绑定；buffer 长期有效 | 句柄、`uint32_t *pData`、元素数 | 返回状态；非阻塞；DMA 长度与 Rank 数不一致；buffer 类型/对齐错误 |
+| `HAL_ADC_Stop_DMA()` | ADC DMA 已运行 | ADC 句柄 | 返回状态；同步停止；停止后直接使用正在更新的旧状态，未清业务标志 |
+| `HAL_ADC_ConvHalfCpltCallback()` | Circular DMA 与中断已启用 | ADC 句柄 | `void`；中断上下文；前半区尚在处理时被下一轮覆盖 |
+| `HAL_ADC_ConvCpltCallback()` | 中断链完整 | ADC 句柄 | `void`；中断上下文；回调中滤波/打印过重；多个 ADC 不判断实例 |
+
+### 典型调用顺序
+
+```text
+轮询：MX_ADCx_Init()
+-> HAL_ADCEx_Calibration_Start()
+-> HAL_ADC_Start()
+-> HAL_ADC_PollForConversion()
+-> HAL_ADC_GetValue()
+
+DMA：MX_DMA_Init()
+-> MX_ADCx_Init()
+-> 定义全局/静态 DMA buffer
+-> HAL_ADCEx_Calibration_Start()
+-> HAL_ADC_Start_DMA()
+-> Half/Cplt 回调置处理标志
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| 单次读取一个通道 | `Start` + `PollForConversion` + `GetValue` |
+| 低频转换完成事件 | `HAL_ADC_Start_IT()` |
+| 连续多通道采样 | `HAL_ADC_Start_DMA()` |
+| 固定时间间隔采样 | TIM TRGO + ADC 外部触发 + DMA |
+| 停止连续采样再改配置 | `HAL_ADC_Stop_DMA()` 后确认状态 |
 
 ## 最小实验 / 最小框架
 

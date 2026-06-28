@@ -94,14 +94,51 @@ I2C 的共享能力来自“任何设备都不主动输出高电平”。主机�
 
 ## 常用 HAL API
 
-| API / 对象 | 作用 | 常见位置 |
+### API 速查
+
+| HAL 函数 / 宏 | 作用 | 常见位置 |
 |---|---|---|
-| `HAL_I2C_IsDeviceReady` | 探测设备 ACK | 地址验证 |
-| `HAL_I2C_Master_Transmit` | 发送自定义字节流 | OLED 命令等 |
-| `HAL_I2C_Master_Receive` | 接收字节流 | 简单设备 |
-| `HAL_I2C_Mem_Read` | 读寄存器 | 传感器 |
-| `HAL_I2C_Mem_Write` | 写寄存器 | 配置设备 |
-| `HAL_I2C_GetState` | 查看控制器状态 | BUSY 调试 |
+| `HAL_I2C_Master_Transmit()` | 向设备直接发送命令/数据序列 | OLED 命令、非寄存器协议 |
+| `HAL_I2C_Master_Receive()` | 从设备直接接收字节流 | 简单连续读取协议 |
+| `HAL_I2C_Mem_Write()` | 向寄存器型设备写配置 | BSP 初始化/配置 |
+| `HAL_I2C_Mem_Read()` | 从指定寄存器开始读取 | 读 ID、状态、连续数据 |
+| `HAL_I2C_IsDeviceReady()` | 通过 ACK 探测设备是否在线 | bring-up、地址扫描 |
+| `HAL_I2C_GetState()` | 查询 HAL I2C 状态机 | BUSY/重启诊断 |
+| `HAL_I2C_GetError()` | 读取最近 I2C 错误码 | API 失败后记录 |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件 | 参数重点 | 返回值 / 阻塞与常见坑 |
+|---|---|---|---|
+| `HAL_I2C_Master_Transmit()` | I2C、上拉和设备地址正确 | `DevAddress`、buffer、Size、Timeout | 返回 `HAL_StatusTypeDef`；阻塞；把寄存器地址误当设备地址；地址未按 HAL 约定处理 |
+| `HAL_I2C_Master_Receive()` | 设备已处于可读状态 | 地址、buffer、长度、超时 | 返回状态；阻塞；省略设备要求的前置命令；读取长度不符合协议 |
+| `HAL_I2C_Mem_Write()` | 寄存器地址宽度已确认 | 设备地址、寄存器地址、`MemAddSize`、数据 | 返回状态；阻塞；`I2C_MEMADD_SIZE_8BIT/16BIT` 选错；寄存器和值顺序混淆 |
+| `HAL_I2C_Mem_Read()` | 设备支持寄存器寻址 | 地址、寄存器、地址宽度、长度 | 返回状态；阻塞；多字节数据高低字节拼错；寄存器自动递增规则未核对 |
+| `HAL_I2C_IsDeviceReady()` | 总线上拉和电平正常 | 地址、Trials、Timeout | 返回状态；阻塞尝试；只证明地址 ACK，不证明寄存器和初始化正确 |
+| `HAL_I2C_GetState()` | 句柄已初始化 | I2C 句柄 | 返回 `HAL_I2C_StateTypeDef`；非阻塞；只看软件状态，不量 SDA/SCL 电平 |
+| `HAL_I2C_GetError()` | 已发生或怀疑通信错误 | I2C 句柄 | 返回错误位掩码；非阻塞；忽略 API 返回值，事后错误上下文已丢失 |
+
+### 典型调用顺序
+
+```text
+确认供电、共地、SCL/SDA 上拉
+-> MX_I2Cx_Init()
+-> HAL_I2C_IsDeviceReady() 验证地址 ACK
+-> HAL_I2C_Mem_Read() 读取设备 ID
+-> HAL_I2C_Mem_Write() 写最少配置
+-> 连续 HAL_I2C_Mem_Read() 读取原始数据
+-> 每步检查 HAL_OK，失败时记录 GetState/GetError
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| 探测某地址是否应答 | `HAL_I2C_IsDeviceReady()` |
+| 读写常见传感器寄存器 | `HAL_I2C_Mem_Read()` / `HAL_I2C_Mem_Write()` |
+| 发送 OLED 控制字节和数据流 | `HAL_I2C_Master_Transmit()` 或经验证的驱动封装 |
+| 设备协议先写命令再独立读取 | `Master_Transmit()` + `Master_Receive()` |
+| API 返回 BUSY/ERROR | 先查 SDA/SCL/上拉，再分别看 `HAL_I2C_GetState()`、`HAL_I2C_GetError()` |
 
 ## 最小实验 / 最小框架
 

@@ -94,12 +94,50 @@ tags:
 
 ## 常用 HAL API
 
-| API / 对象 | 作用 | 常见位置 |
+### API 速查
+
+| HAL 函数 / 宏 | 作用 | 常见位置 |
 |---|---|---|
-| `HAL_ADC_Start` | 让 ADC 等待外部触发 | 启动阶段 |
-| `HAL_ADC_Start_DMA` | 外部触发结果搬入数组 | 连续采样 |
-| `HAL_TIM_Base_Start` | 启动触发源 | ADC 启动后 |
-| `HAL_ADC_PollForConversion` | 等待结果 | 低速验证 |
+| `HAL_ADCEx_Calibration_Start()` | 校准 F1 ADC | ADC 启动前 |
+| `HAL_ADC_Start()` | 使能 ADC，并按配置等待/响应外部触发 | 单次/轮询验证 |
+| `HAL_ADC_Start_DMA()` | 让 ADC 结果经 DMA 写入缓冲区 | 连续定时采样 |
+| `HAL_ADC_PollForConversion()` | 等待一次转换完成 | 低速链路验证 |
+| `HAL_ADC_GetValue()` | 读取最近转换结果 | Poll 成功后 |
+| `HAL_TIM_Base_Start()` | 启动产生 Update/TRGO 的定时器 | ADC/DMA 已就绪后 |
+| `HAL_ADC_ConvCpltCallback()` | 处理一轮 DMA 缓冲区完成 | 用户回调 |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件 | 参数重点 | 返回值 / 阻塞与常见坑 |
+|---|---|---|---|
+| `HAL_ADCEx_Calibration_Start()` | ADC 初始化完成且未忙 | ADC 句柄 | 返回 `HAL_StatusTypeDef`；同步等待校准；在采样运行后重复校准；忽略失败状态 |
+| `HAL_ADC_Start()` | External Trigger 已指向正确 TIM TRGO | ADC 句柄 | 返回状态；启动本身非阻塞；误以为调用后必然立刻转换；触发源未运行会一直无结果 |
+| `HAL_ADC_Start_DMA()` | DMA 已绑定；缓冲区长期有效 | ADC 句柄、`uint32_t *pData`、长度 | 返回状态；非阻塞；Rank 数与长度不一致；局部数组生命周期结束 |
+| `HAL_ADC_PollForConversion()` | ADC 已启动且触发能到达 | ADC 句柄、超时 | 返回状态；阻塞到完成或超时；TRGO 断链时主循环反复超时；误放在实时任务中 |
+| `HAL_ADC_GetValue()` | 转换已完成 | ADC 句柄 | 返回转换值；非阻塞；未确认转换完成就读取旧值 |
+| `HAL_TIM_Base_Start()` | TIM TRGO 配置正确 | TIM 句柄 | 返回状态；非阻塞；启动顺序反了，首个触发发生在 ADC/DMA 就绪前 |
+| `HAL_ADC_ConvCpltCallback()` | ADC DMA 与 DMA IRQ 已启用 | ADC 句柄 | `void`；中断上下文；回调中做长计算；不判断 `hadc->Instance` |
+
+### 典型调用顺序
+
+```text
+MX_DMA_Init()
+-> MX_ADCx_Init()
+-> MX_TIMx_Init() 并配置 TRGO=Update
+-> HAL_ADCEx_Calibration_Start()
+-> HAL_ADC_Start_DMA() 或 HAL_ADC_Start()
+-> HAL_TIM_Base_Start()
+-> DMA 回调/轮询读取结果
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| 先验证单次 TIM 触发是否连通 | `HAL_ADC_Start()` + `HAL_ADC_PollForConversion()` |
+| 固定节拍连续采样 | TIM TRGO + `HAL_ADC_Start_DMA()` |
+| 不需要 TIM 硬件节拍 | 回到 [[ADC与模拟采样]] 选择软件触发模式 |
+| 处理整缓冲区 | `HAL_ADC_ConvCpltCallback()` 中只置标志，主循环处理 |
 
 ## 最小实验 / 最小框架
 

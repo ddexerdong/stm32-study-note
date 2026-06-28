@@ -93,13 +93,59 @@ HC-SR04 一类模块可作为输入捕获练习：MCU 产生 TRIG，模块在 EC
 
 ## 常用 HAL API
 
-| API / 对象 | 作用 | 常见位置 |
+### API 速查
+
+| HAL 函数 / 宏 | 作用 | 常见位置 |
 |---|---|---|
-| `HAL_TIM_Encoder_Start` | 启动编码器通道 | 初始化后 |
-| `__HAL_TIM_GET_COUNTER` | 读取位置计数 | 周期任务 |
-| `HAL_TIM_IC_Start_IT` | 启动捕获中断 | 脉宽测量 |
-| `HAL_TIM_ReadCapturedValue` | 读取 CCR | 捕获回调 |
-| `__HAL_TIM_SET_CAPTUREPOLARITY` | 切换捕获边沿 | 双边沿流程 |
+| `HAL_TIM_IC_Start()` | 启动输入捕获，不开启捕获中断 | 轮询标志或硬件链路 |
+| `HAL_TIM_IC_Start_IT()` | 启动输入捕获并开启通道中断 | 脉宽/频率测量 |
+| `HAL_TIM_ReadCapturedValue()` | 读取边沿到来时锁存的 CCR | 捕获回调、测量处理 |
+| `__HAL_TIM_SET_CAPTUREPOLARITY()` | 运行时切换上升/下降沿捕获 | 单通道双边沿测脉宽 |
+| `HAL_TIM_IC_CaptureCallback()` | 接收输入捕获事件 | 用户回调 |
+| `HAL_TIM_Encoder_Start()` | 启动编码器接口计数 | 初始化后 |
+| `HAL_TIM_Encoder_Start_IT()` | 启动编码器接口并开启相关中断 | 需要更新/捕获事件的编码器方案 |
+| `__HAL_TIM_GET_COUNTER()` | 读取编码器累计位置 | 固定周期测速/位置任务 |
+| `__HAL_TIM_SET_COUNTER()` | 设定编码器/捕获计数起点 | 回零、开始新测量 |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件 | 参数重点 | 返回值 / 阻塞与常见坑 |
+|---|---|---|---|
+| `HAL_TIM_IC_Start()` | IC 通道和引脚已配置 | 句柄、通道 | 返回 `HAL_StatusTypeDef`；非阻塞；误以为会进入捕获回调 |
+| `HAL_TIM_IC_Start_IT()` | TIM NVIC 已使能 | 句柄、`TIM_CHANNEL_x` | 返回状态；非阻塞；通道选错或 NVIC 未开导致无回调 |
+| `HAL_TIM_ReadCapturedValue()` | 对应通道已经捕获 | 句柄、通道 | 返回捕获值；非阻塞；把 CCR 当当前 CNT；忽略回绕和溢出次数 |
+| `__HAL_TIM_SET_CAPTUREPOLARITY()` | 通道处于输入捕获模式 | 句柄、通道、极性宏 | 宏；非阻塞；切换边沿后未清状态或重置阶段变量 |
+| `HAL_TIM_IC_CaptureCallback()` | IRQHandler 调用 `HAL_TIM_IRQHandler()` | `htim`，并检查 `HAL_TIM_ACTIVE_CHANNEL_1` 等实际活动通道值 | `void`；中断上下文；只判断定时器、不判断活动通道；回调做长计算 |
+| `HAL_TIM_Encoder_Start()` | Encoder Mode、CH1/CH2 引脚已配置 | 句柄、通道选择 | 返回状态；非阻塞；A/B 相、极性或滤波不对；忘记启动两个通道 |
+| `HAL_TIM_Encoder_Start_IT()` | NVIC 和中断策略已设计 | 句柄、通道选择 | 返回状态；非阻塞；测速通常不必每个边沿中断，盲目使用会增加 CPU 负担 |
+| `__HAL_TIM_GET_COUNTER()` | 编码器 TIM 已启动 | 定时器句柄 | 返回 CNT；非阻塞；差分计算未处理回绕；有符号方向转换错误 |
+| `__HAL_TIM_SET_COUNTER()` | 清楚运行中改 CNT 的影响 | 句柄、计数值 | 宏；非阻塞；与中断并发修改造成测量跳变 |
+
+### 典型调用顺序
+
+```text
+输入捕获：MX_TIMx_Init()
+-> HAL_TIM_IC_Start_IT()
+-> HAL_TIM_IC_CaptureCallback()
+-> HAL_TIM_ReadCapturedValue()
+-> 切换边沿/计算差值/处理溢出
+
+编码器：MX_TIMx_Init()
+-> HAL_TIM_Encoder_Start()
+-> 固定周期读取 __HAL_TIM_GET_COUNTER()
+-> 与上次值做带回绕的差分
+-> 换算位置或速度
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| 轮询捕获结果 | `HAL_TIM_IC_Start()` + 状态/寄存器检查 |
+| 边沿到来立即处理 | `HAL_TIM_IC_Start_IT()` + `HAL_TIM_IC_CaptureCallback()` |
+| 编码器位置/低速周期测速 | `HAL_TIM_Encoder_Start()` + 周期读取 CNT |
+| 单通道测高电平脉宽 | 捕获中断 + `__HAL_TIM_SET_CAPTUREPOLARITY()` |
+| 编码器每边沿都触发软件 | 仅在确有需求时使用 `HAL_TIM_Encoder_Start_IT()` |
 
 ## 最小实验 / 最小框架
 

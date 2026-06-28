@@ -49,9 +49,53 @@ SPI 全双工意味着发送一个字节的同时也会接收一个字节。只�
 
 ## 常用 HAL API
 
-- `HAL_SPI_Transmit`
-- `HAL_SPI_Receive`
-- `HAL_SPI_TransmitReceive`
+### API 速查
+
+| HAL 函数 / 宏 | 作用 | 常见位置 |
+|---|---|---|
+| `HAL_SPI_Transmit()` | 在主机时钟下发送字节 | 命令、地址、写数据 |
+| `HAL_SPI_Receive()` | 按当前 SPI 配置接收数据 | 特定接收流程 |
+| `HAL_SPI_TransmitReceive()` | 同时发送 dummy/命令并接收返回字节 | 读 ID、状态、全双工设备 |
+| `HAL_SPI_Transmit_DMA()` | DMA 发送一块数据 | 大块屏幕/存储写入 |
+| `HAL_SPI_Receive_DMA()` | DMA 接收一块数据 | 连续接收场景 |
+| `HAL_SPI_GetState()` | 查询 SPI HAL 状态 | 重启前、BUSY 诊断 |
+| `HAL_SPI_GetError()` | 读取 SPI 错误码 | API 失败/回调错误后 |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件 | 参数重点 | 返回值 / 阻塞与常见坑 |
+|---|---|---|---|
+| `HAL_SPI_Transmit()` | SPI 模式正确，目标 CS 已拉低 | buffer、元素数、Timeout | 返回 `HAL_StatusTypeDef`；阻塞；Size 受 Data Size 影响；事务结束前误拉高 CS |
+| `HAL_SPI_Receive()` | 主机必须产生时钟 | buffer、元素数、Timeout | 返回状态；阻塞；忽略全双工读时仍需时钟；复杂命令读优先显式 TxRx |
+| `HAL_SPI_TransmitReceive()` | CS 和 CPOL/CPHA 正确 | Tx/Rx buffer、Size、Timeout | 返回状态；阻塞；Tx/Rx 长度或缓冲区重叠处理错误；dummy 值未经协议确认 |
+| `HAL_SPI_Transmit_DMA()` | TX DMA 已关联 | 长期有效 buffer、长度 | 返回状态；非阻塞；DMA 完成前拉高 CS 或修改 buffer |
+| `HAL_SPI_Receive_DMA()` | RX DMA 已关联且时钟方案明确 | buffer、长度 | 返回状态；非阻塞；主机接收仍需产生 SCK；只开 RX DMA 不代表协议完整 |
+| `HAL_SPI_GetState()` | SPI 已初始化 | SPI 句柄 | 返回 `HAL_SPI_StateTypeDef`；非阻塞；只等软件 READY，不检查 CS/时钟和 Flash BUSY |
+| `HAL_SPI_GetError()` | 句柄有效 | SPI 句柄 | 返回错误位掩码；非阻塞；不检查返回值，问题发生后才读取已变化状态 |
+
+### 典型调用顺序
+
+```text
+MX_SPIx_Init()
+-> CS 默认拉高
+-> CS 拉低
+-> HAL_SPI_Transmit() 发送命令/地址
+-> HAL_SPI_TransmitReceive() 发送 dummy 并读取数据
+-> CS 拉高
+-> 检查 HAL 返回值和设备状态
+```
+
+W25Q64 的读 ID、写使能、读状态、页写和扇区擦除是芯片命令序列，不是某一个 HAL 函数。命令字、页/扇区大小和忙位定义以具体 Flash 手册为准。
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| 发送命令、地址或写数据 | `HAL_SPI_Transmit()` |
+| 同一时钟周期边发边收 | `HAL_SPI_TransmitReceive()` |
+| 主机读取寄存器/Flash 数据 | 手动 CS + 发送命令 + 显式 dummy/TxRx |
+| 大块连续发送 | `HAL_SPI_Transmit_DMA()` |
+| 通信失败 | 先查 CS、CPOL/CPHA、SCK/MISO，再看 `GetState/GetError()` |
 
 ## 关联知识
 

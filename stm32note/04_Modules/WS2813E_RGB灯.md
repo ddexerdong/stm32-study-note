@@ -96,14 +96,34 @@ tags:
 3. TIM + DMA：把编码缓冲自动送入 CCR
 4. 先单颗低亮度验证
 
-## 常用 HAL API
+## 本模块依赖的 HAL 层
 
-| API | 用途 |
+| 驱动动作 | 依赖 HAL / 接口 | 说明 |
+|---|---|---|
+| GPIO bit-bang 原型 | `HAL_GPIO_WritePin()` | HAL 调用开销和中断抖动通常不适合未经验证的纳秒级量产时序，仅可用于概念/低风险试验 |
+| 启动固定 PWM 通道 | `HAL_TIM_PWM_Start()` | 适合观察基本波形，不会自动发送整帧颜色编码 |
+| DMA 推送 CCR 序列 | `HAL_TIM_PWM_Start_DMA()` | buffer 在发送完成前必须有效；每个元素代表一个 bit 的比较值 |
+| 帧发送完成通知 | `HAL_TIM_PWM_PulseFinishedCallback()` | 仅在相应 PWM IT/DMA 流程下进入；回调中停止 DMA/拉低输出的细节需按驱动验证 |
+| 生成位宽序列 | 普通 C 编码函数 | 不是 HAL API；颜色顺序、bit 时序和 reset/latch 必须来自器件手册 |
+
+### 典型调用顺序
+
+```text
+按手册确认颜色顺序和高低电平窗口
+-> CubeMX 配置 TIM PWM + DMA
+-> 把颜色 buffer 编码成 CCR 序列
+-> HAL_TIM_PWM_Start_DMA()
+-> PulseFinishedCallback 标记帧完成/停止输出
+-> 保持满足手册的 reset/latch 低电平时间
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
 |---|---|
-| `HAL_GPIO_WritePin` | bit-bang 原型 |
-| `HAL_TIM_PWM_Start` | TIM 波形输出 |
-| `HAL_TIM_PWM_Start_DMA` | DMA 推送脉宽序列 |
-| `HAL_TIM_PWM_PulseFinishedCallback` | 帧发送完成 |
+| 观察单个 PWM bit 基础波形 | `HAL_TIM_PWM_Start()` |
+| 稳定发送多灯颜色帧 | `HAL_TIM_PWM_Start_DMA()` + 经验证的编码 buffer |
+| 纯 GPIO bit-bang | 仅在时序经过示波器验证时使用，不把普通 HAL GPIO 调用当确定方案 |
 
 ## Bring-up 顺序
 

@@ -91,12 +91,46 @@ PWM 不是“输出模拟电压”，而是高速开关。负载通过平均能�
 
 ## 常用 HAL API
 
-| API / 对象 | 作用 | 常见位置 |
+### API 速查
+
+| HAL 函数 / 宏 | 作用 | 常见位置 |
 |---|---|---|
-| `HAL_TIM_PWM_Start` | 启动 PWM 通道 | 初始化后 |
-| `HAL_TIM_PWM_Stop` | 停止 PWM | 安全停机 |
-| `__HAL_TIM_SET_COMPARE` | 更新 CCR | 调光/调速/舵机 |
-| `__HAL_TIM_SET_AUTORELOAD` | 动态修改周期 | 变频场景 |
+| `HAL_TIM_PWM_Start()` | 启动指定 PWM 通道输出 | 外设初始化后 |
+| `HAL_TIM_PWM_Stop()` | 停止指定 PWM 通道 | 安全停机、关闭输出 |
+| `__HAL_TIM_SET_COMPARE()` | 修改通道 CCR，改变占空比/脉宽 | 调光、调速、舵机更新 |
+| `__HAL_TIM_GET_COMPARE()` | 读取当前通道 CCR | 状态显示、调试 |
+| `HAL_TIM_PWM_PulseFinishedCallback()` | 接收 PWM IT/DMA 脉冲完成事件 | 用户回调 |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件 | 参数重点 | 返回值 / 阻塞与常见坑 |
+|---|---|---|---|
+| `HAL_TIM_PWM_Start()` | TIM PWM 模式与复用引脚已配置 | 句柄、`TIM_CHANNEL_x` | 返回 `HAL_StatusTypeDef`；非阻塞；CubeMX 配好并不等于已输出；通道参数与引脚不匹配 |
+| `HAL_TIM_PWM_Stop()` | PWM 已启动 | 句柄、通道 | 返回状态；同步停止；只把 CCR 设 0 不等于完整停止通道 |
+| `__HAL_TIM_SET_COMPARE()` | PWM 通道已初始化 | 句柄、通道、比较值 | 宏；非阻塞；CCR 超过 ARR；单位是计数值，不是直接百分比或微秒 |
+| `__HAL_TIM_GET_COMPARE()` | 句柄与通道有效 | 句柄、通道 | 返回比较值；非阻塞；读取值不能证明引脚上真的有波形 |
+| `HAL_TIM_PWM_PulseFinishedCallback()` | 使用 PWM IT/DMA 启动方式和相应中断 | `htim`，需判断实例/通道 | `void`；中断上下文；普通 `HAL_TIM_PWM_Start()` 不会因为每个周期自动调用它 |
+
+### 典型调用顺序
+
+```text
+CubeMX 配置 TIM PWM、PSC、ARR、Pulse 和复用引脚
+-> MX_TIMx_Init()
+-> HAL_TIM_PWM_Start(&htimx, TIM_CHANNEL_x)
+-> __HAL_TIM_SET_COMPARE() 更新 CCR
+-> 示波器确认频率和脉宽
+-> 需要时 HAL_TIM_PWM_Stop()
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| 固定频率连续 PWM | `HAL_TIM_PWM_Start()` |
+| 运行时改变亮度/速度/舵机脉宽 | `__HAL_TIM_SET_COMPARE()` |
+| 查询当前设定的 CCR | `__HAL_TIM_GET_COMPARE()` |
+| 彻底停止通道输出 | `HAL_TIM_PWM_Stop()` |
+| 需要 DMA 发送一串比较值 | `HAL_TIM_PWM_Start_DMA()`，完成后再考虑 PulseFinished 回调 |
 
 ## 最小实验 / 最小框架
 

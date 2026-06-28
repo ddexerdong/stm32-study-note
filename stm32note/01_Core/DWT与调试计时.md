@@ -86,14 +86,52 @@ DWT 给出的是 CPU 走过多少周期，而不是抽象的“延时”。这�
 2. 先确认 `SystemCoreClock` 与真实主频一致。
 3. Debug 时在 start/stop/delta 变量上观察，不要把单步停顿算入测量。
 
-## 常用 HAL API
+## 计时接口：HAL Tick 与 CMSIS / DWT
 
-| API / 对象 | 作用 | 常见位置 |
-|---|---|---|
-| `CoreDebug->DEMCR` | 开启跟踪组件 | DWT 初始化 |
-| `DWT->CTRL` | 使能 CYCCNT | DWT 初始化 |
-| `DWT->CYCCNT` | 读取周期数 | 时间测量 |
-| `SystemCoreClock` | 换算周期 | 系统时钟变量 |
+> 这部分不是 HAL API，而是 CMSIS/内核调试组件相关操作。`CoreDebug`、`DWT` 和 `SystemCoreClock` 不能包装成并不存在的 HAL 函数名；是否可用还取决于 Cortex-M 内核、调试配置和低功耗状态。
+
+### API 速查
+
+| 接口 / 对象 | 类型 | 解决什么问题 | 常见调用位置 |
+|---|---|---|---|
+| `CoreDebug->DEMCR` | CMSIS 内核寄存器映射 | 允许跟踪/调试组件工作 | DWT 初始化 |
+| `DWT->CTRL` | CMSIS 内核寄存器映射 | 使能 `CYCCNT` 周期计数 | DWT 初始化 |
+| `DWT->CYCCNT` | CMSIS 内核寄存器映射 | 读取/清零 CPU 周期数 | 测量起止点、短延时 |
+| `SystemCoreClock` | CMSIS 系统时钟变量 | 把周期数换算成时间 | 时间换算 |
+| `HAL_GetTick()` | HAL API | 获取默认毫秒时基 | 长超时、普通节拍 |
+| `HAL_Delay()` | HAL API | 毫秒级阻塞等待 | 简单初始化/实验 |
+
+### 使用注意
+
+| 接口 / 对象 | 前置条件 | 返回值 / 阻塞 | 常见坑 |
+|---|---|---|---|
+| `CoreDebug->DEMCR` | 当前内核实现 DWT | 直接寄存器访问；非阻塞 | 把它误认为 HAL API；覆盖其它控制位 |
+| `DWT->CTRL` | 跟踪功能已打开 | 直接寄存器访问；非阻塞 | 未使能计数就读取，数值一直不变 |
+| `DWT->CYCCNT` | `CYCCNTENA` 已置位 | 返回/写入 32 位计数；非阻塞 | 忽略回绕；单步和中断会改变测量结果 |
+| `SystemCoreClock` | 变量与真实 HCLK 同步 | 读取变量；非阻塞 | 改时钟后未更新，微秒换算整体偏差 |
+| `HAL_GetTick()` | HAL tick 正常运行 | 返回 `uint32_t`；非阻塞 | 精度只有 tick 级，不适合微秒时序 |
+| `HAL_Delay()` | HAL tick 正常运行 | `void`；阻塞 | 不能替代 DWT 的微秒测量；中断中调用风险高 |
+
+### 典型调用顺序
+
+```text
+确认 Cortex-M3 支持 DWT
+-> 使能 CoreDebug 跟踪位
+-> 清零并使能 DWT->CYCCNT
+-> 读取 start
+-> 连续运行被测代码
+-> 读取 end，以无符号差值换算时间
+```
+
+### 什么时候用哪个接口？
+
+| 场景 | 推荐接口 |
+|---|---|
+| 普通毫秒超时/状态机 | `HAL_GetTick()` |
+| 允许阻塞的毫秒等待 | `HAL_Delay()` |
+| 测函数 CPU 周期 | `DWT->CYCCNT` |
+| 短微秒等待 | 经验证的 DWT 忙等或 TIM |
+| 纳秒级严格输出时序 | 优先 TIM/DMA 等硬件方案，不依赖普通 HAL GPIO 调用延时 |
 
 ## 最小实验 / 最小框架
 

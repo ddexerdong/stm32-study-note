@@ -79,14 +79,50 @@ App 目标速度/方向
 3. 根据目标频率计算 PSC/ARR，先用示波器确认。
 4. 具体引脚、极性和真值表按原理图/手册/视频。
 
-## HAL API
+## 本项目使用的 HAL 层
 
-| API | 用途 |
+### API 速查
+
+| 项目动作 | HAL 函数 / 宏 |
 |---|---|
-| `HAL_GPIO_WritePin` | 方向和 STBY |
-| `HAL_TIM_PWM_Start` | 启动 PWM |
-| `__HAL_TIM_SET_COMPARE` | 更新速度 |
-| `HAL_TIM_PWM_Stop` | 安全停止输出 |
+| 设置 STBY 和方向输入 | `HAL_GPIO_WritePin()` |
+| 启动 PWM 通道 | `HAL_TIM_PWM_Start()` |
+| 更新速度 | `__HAL_TIM_SET_COMPARE()` |
+| 停止 PWM 输出 | `HAL_TIM_PWM_Stop()` |
+| 非阻塞换向保护计时 | `HAL_GetTick()` |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件与调用位置 | 返回值 / 阻塞 | 常见坑 |
+|---|---|---|---|
+| `HAL_GPIO_WritePin()` | GPIO 初始化后，在 `Motor_Forward/Backward/Stop()` 内调用 | `void`；非阻塞 | 有效电平和真值表未按模块手册确认；换向时未先降速 |
+| `HAL_TIM_PWM_Start()` | TIM PWM 初始化后，在 `Motor_Init()` 调用一次 | 返回 `HAL_StatusTypeDef`；非阻塞 | CubeMX 配好但未 Start；通道与 PWMA 接线不一致 |
+| `__HAL_TIM_SET_COMPARE()` | PWM 已启动，在 `Motor_SetSpeed()` 中限制范围后调用 | 宏；非阻塞 | CCR 超过 ARR；把百分比直接当 CCR |
+| `HAL_TIM_PWM_Stop()` | 故障停机或完全关闭通道 | 返回状态；同步停止 | 与“CCR=0 的滑行/制动状态”混为一谈 |
+| `HAL_GetTick()` | App 状态机中实现停机等待 | 返回 tick；非阻塞 | 用长 `HAL_Delay()` 阻塞其它控制和通信 |
+
+HAL 只负责 GPIO/PWM。TB6612FNG 的 STBY、方向、停止/制动真值表、电源限制和安全换向策略必须以模块手册、原理图和实测为准。
+
+### 典型调用顺序
+
+```text
+MX_GPIO_Init()
+-> MX_TIMx_Init()
+-> HAL_TIM_PWM_Start()
+-> Motor_Init() 进入安全停止态
+-> GPIO 设置方向
+-> __HAL_TIM_SET_COMPARE() 缓慢提高速度
+-> 停机/换向时先降 CCR，再改方向
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| 普通方向/使能控制 | `HAL_GPIO_WritePin()` |
+| 初始化连续 PWM | `HAL_TIM_PWM_Start()` |
+| 运行时调速 | `__HAL_TIM_SET_COMPARE()` |
+| 故障时关闭 PWM 通道 | `HAL_TIM_PWM_Stop()` + 安全 GPIO 状态 |
 
 ## BSP 核心框架
 

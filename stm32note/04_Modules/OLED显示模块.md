@@ -100,14 +100,37 @@ I2C 字节发送
 3. 先使用阻塞发送验证
 4. 配置串口用于打印 HAL 返回值
 
-## 常用 HAL API
+## 本模块依赖的 HAL 层
 
-| API | 用途 |
+| 模块动作 | 依赖 HAL / C 接口 | 说明 |
+|---|---|---|
+| 探测 OLED 地址是否 ACK | `HAL_I2C_IsDeviceReady()` | 只能证明该地址有设备响应，不能证明控制器型号和初始化序列正确 |
+| 发送控制字节、命令或显存数据 | `HAL_I2C_Master_Transmit()` | 常见驱动把控制字节与命令/数据组合成字节流；每次检查 `HAL_OK` |
+| 使用寄存器式封装 | `HAL_I2C_Mem_Write()` | 仅当驱动明确把控制字节映射为 MemAddress 时使用，不能默认所有 OLED 都适合 |
+| 查询 I2C 错误 | `HAL_I2C_GetState()` / `HAL_I2C_GetError()` | 用于区分 BUSY、NACK、超时等软件状态，仍需量 SCL/SDA |
+| 格式化显示文本 | `snprintf()` | C 库函数，不是 HAL API；注意目标 buffer 容量 |
+
+HAL 只负责 I2C 字节传输。OLED 地址、控制字节、初始化命令、页/列组织、字库和位图取模格式仍以实际控制器手册、模块板和课程源码为准。
+
+### 典型调用顺序
+
+```text
+MX_I2Cx_Init()
+-> HAL_I2C_IsDeviceReady()
+-> 发送初始化命令序列
+-> 清显示缓冲区
+-> HAL_I2C_Master_Transmit() 刷新命令/数据
+-> 检查返回值，失败时读取 I2C state/error
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
 |---|---|
-| `HAL_I2C_IsDeviceReady` | 确认地址 ACK |
-| `HAL_I2C_Master_Transmit` | 写控制字节+命令/数据 |
-| `HAL_I2C_Mem_Write` | 仅在协议模型匹配时使用 |
-| `snprintf` | 格式化传感器显示文本 |
+| 先确认地址是否响应 | `HAL_I2C_IsDeviceReady()` |
+| 发送命令/数据字节流 | `HAL_I2C_Master_Transmit()` |
+| 已验证的寄存器式驱动 | `HAL_I2C_Mem_Write()` |
+| 显示数字/字符串前格式化 | `snprintf()`，随后交给 OLED 字符绘制函数 |
 
 ## Bring-up 顺序
 

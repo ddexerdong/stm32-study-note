@@ -96,13 +96,50 @@ CubeMX 配 PSC/ARR/NVIC
 
 ## 常用 HAL API
 
-| API / 对象 | 作用 | 常见位置 |
+### API 速查
+
+| HAL 函数 / 宏 | 作用 | 常见位置 |
 |---|---|---|
-| `HAL_TIM_Base_Start` | 启动基础计数 | 轮询/触发 |
-| `HAL_TIM_Base_Start_IT` | 启动更新中断 | 周期任务 |
-| `HAL_TIM_PeriodElapsedCallback` | 更新完成回调 | 设置任务标志 |
-| `__HAL_TIM_GET_COUNTER` | 读取 CNT | 调试/测量 |
-| `__HAL_TIM_SET_AUTORELOAD` | 更新 ARR | 动态周期 |
+| `HAL_TIM_Base_Start()` | 启动基本计数，不开启更新中断 | 初始化后、TRGO 触发源 |
+| `HAL_TIM_Base_Start_IT()` | 启动计数并使能更新中断 | 周期任务启动 |
+| `HAL_TIM_Base_Stop_IT()` | 停止计数并关闭更新中断 | 暂停周期任务、停机 |
+| `HAL_TIM_PeriodElapsedCallback()` | 接收更新事件的用户弱函数回调 | 用户代码 |
+| `__HAL_TIM_SET_COUNTER()` | 直接设置 CNT 当前值 | 重新开始测量、复位计数 |
+| `__HAL_TIM_GET_COUNTER()` | 读取 CNT 当前值 | 调试、时间/位置采样 |
+| `__HAL_TIM_SET_AUTORELOAD()` | 修改 ARR 周期上限 | 运行时变周期 |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件 | 参数重点 | 返回值 / 阻塞与常见坑 |
+|---|---|---|---|
+| `HAL_TIM_Base_Start()` | `MX_TIMx_Init()` 已完成 | `TIM_HandleTypeDef *htim` | 返回 `HAL_StatusTypeDef`；非阻塞；误以为调用它会进入周期回调 |
+| `HAL_TIM_Base_Start_IT()` | TIM NVIC 已配置 | 定时器句柄 | 返回状态；非阻塞；只开 NVIC 但没调用 `_Start_IT()`，回调仍不会进入 |
+| `HAL_TIM_Base_Stop_IT()` | 定时器已以 IT 模式启动 | 定时器句柄 | 返回状态；同步完成；停止后忘记清理业务状态；与普通 `Stop` 混用 |
+| `HAL_TIM_PeriodElapsedCallback()` | IRQHandler 调用 `HAL_TIM_IRQHandler()` | `htim`，需判断 `htim->Instance` | `void`；中断上下文；多个 TIM 共用回调却不判断来源；回调中阻塞 |
+| `__HAL_TIM_SET_COUNTER()` | TIM 句柄有效 | 句柄、计数值 | 宏；非阻塞；运行中修改会改变当前周期，需理解副作用 |
+| `__HAL_TIM_GET_COUNTER()` | TIM 已启动或允许读取静态值 | 定时器句柄 | 返回计数值；非阻塞；把 CNT 当成固定时间，忽略计数频率和溢出 |
+| `__HAL_TIM_SET_AUTORELOAD()` | 了解预装载设置 | 句柄、新 ARR | 宏；非阻塞；新值可能在更新事件后才生效；公式仍要处理 `ARR + 1` |
+
+### 典型调用顺序
+
+```text
+CubeMX 配置 TIM 时钟、PSC、ARR
+-> 生成并调用 MX_TIMx_Init()
+-> 需要回调时配置 NVIC
+-> HAL_TIM_Base_Start_IT()
+-> TIMx_IRQHandler() -> HAL_TIM_IRQHandler()
+-> HAL_TIM_PeriodElapsedCallback() 判断 htim->Instance 并置标志
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| 只需要计数或输出 TRGO，不处理中断 | `HAL_TIM_Base_Start()` |
+| 周期性进入回调 | `HAL_TIM_Base_Start_IT()` |
+| 暂停周期中断 | `HAL_TIM_Base_Stop_IT()` |
+| 读取当前计数 | `__HAL_TIM_GET_COUNTER()` |
+| 重新从指定计数开始 | `__HAL_TIM_SET_COUNTER()` |
 
 ## 最小实验 / 最小框架
 

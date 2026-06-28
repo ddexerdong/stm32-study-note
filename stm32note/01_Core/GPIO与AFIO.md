@@ -47,10 +47,51 @@ GPIO 负责感知引脚电平；EXTI 负责把特定边沿转换成中断/事件
 
 ## 常用 HAL API
 
-- `HAL_GPIO_ReadPin`
-- `HAL_GPIO_WritePin`
-- `HAL_GPIO_TogglePin`
-- `HAL_GPIO_EXTI_Callback`
+### API 速查
+
+| HAL 函数 / 宏 | 作用 | 常见位置 |
+|---|---|---|
+| `HAL_GPIO_Init()` | 按 `GPIO_InitTypeDef` 配置一组引脚 | `MX_GPIO_Init()` 或 BSP 初始化 |
+| `HAL_GPIO_WritePin()` | 设置普通 GPIO 输出电平 | 主循环、BSP 控制函数 |
+| `HAL_GPIO_ReadPin()` | 读取引脚当前输入数据状态 | 按键、DO 传感器、状态检查 |
+| `HAL_GPIO_TogglePin()` | 翻转普通输出电平 | LED 心跳、低速调试标记 |
+| `HAL_GPIO_EXTI_IRQHandler()` | 处理指定 EXTI 线的挂起标志并进入 HAL 回调 | `stm32f1xx_it.c` 的 EXTI IRQHandler |
+| `HAL_GPIO_EXTI_Callback()` | 接收 HAL 分发的 GPIO EXTI 事件 | 用户代码中的回调实现 |
+| `HAL_NVIC_SetPriority()` | 设置 EXTI 对应 IRQ 的优先级 | GPIO/EXTI 初始化阶段 |
+| `HAL_NVIC_EnableIRQ()` | 允许 NVIC 响应指定 EXTI IRQ | 初始化阶段 |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件 | 参数重点 | 返回值 / 阻塞与常见坑 |
+|---|---|---|---|
+| `HAL_GPIO_Init()` | 对应 GPIO 时钟已使能 | `GPIOx`、`Pin/Mode/Pull/Speed` | `void`；配置过程短暂同步执行；忘记开时钟；把输入、模拟或复用模式配错 |
+| `HAL_GPIO_WritePin()` | 引脚已配置为普通输出 | 端口、Pin 宏、`GPIO_PIN_SET/RESET` | `void`；非阻塞；不能用它控制已交给 TIM/USART 等外设复用的波形；有效电平可能相反 |
+| `HAL_GPIO_ReadPin()` | 输入模式和上下拉正确 | 端口与 Pin 宏 | 返回 `GPIO_PinState`；非阻塞；读的是输入状态，不等于读取输出锁存器；悬空输入结果不可靠 |
+| `HAL_GPIO_TogglePin()` | 引脚为普通输出 | 端口与 Pin 宏 | `void`；非阻塞；不适合精确时序或并发修改；不能替代 PWM |
+| `HAL_GPIO_EXTI_IRQHandler()` | GPIO 已配置 EXTI，NVIC 已使能 | 触发中断的 `GPIO_Pin` | `void`；中断上下文；IRQHandler 传错 Pin 会导致回调不符合预期 |
+| `HAL_GPIO_EXTI_Callback()` | IRQHandler 已调用 `HAL_GPIO_EXTI_IRQHandler()` | `GPIO_Pin`，需自行区分来源 | `void` 弱函数；中断上下文；用户应重写弱函数，不修改 HAL 源码；回调中不要阻塞 |
+| `HAL_NVIC_SetPriority()` | 已确定优先级分组 | IRQn、抢占优先级、响应优先级 | `void`；同步配置；把数值大小与优先级高低理解反；多个中断优先级无规划 |
+| `HAL_NVIC_EnableIRQ()` | IRQn 与 EXTI 线匹配 | `IRQn_Type` | `void`；同步配置；只配边沿但未使能 NVIC，回调不会进入 |
+
+### 典型调用顺序
+
+```text
+CubeMX 选择 GPIO 模式/EXTI 边沿
+-> 生成并调用 MX_GPIO_Init()
+-> 轮询场景调用 HAL_GPIO_ReadPin/WritePin
+-> EXTI 场景由 IRQHandler 调 HAL_GPIO_EXTI_IRQHandler()
+-> HAL_GPIO_EXTI_Callback() 中区分 Pin 并设置事件标志
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| 控制普通 LED、片选或使能脚 | `HAL_GPIO_WritePin()` |
+| 轮询按键或数字传感器 DO | `HAL_GPIO_ReadPin()` |
+| 快速验证主循环/定时任务是否运行 | `HAL_GPIO_TogglePin()` |
+| 响应 GPIO 边沿 | EXTI 配置 + `HAL_GPIO_EXTI_IRQHandler()` + `HAL_GPIO_EXTI_Callback()` |
+| 输出 PWM、USART、SPI 等外设信号 | 配置复用功能并使用对应外设 HAL，不使用 `HAL_GPIO_WritePin()` 生成波形 |
 
 ## 调试方法
 

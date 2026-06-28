@@ -89,13 +89,47 @@ Middlewares/            可选协议栈/算法库
 
 ## 常用 HAL / 工程接口
 
-| 接口 | 作用 | 推荐位置 |
-|---|---|---|
-| `MX_xxx_Init` | CubeMX 外设初始化 | main 初始化阶段 |
-| `Module_Init` | 模块级二次配置 | BSP |
-| `Module_Read/Write` | 驱动操作 | BSP 对外接口 |
-| `App_Init/App_Task` | 业务初始化/周期执行 | App |
-| HAL Callback | 中断事件入口 | 转交 BSP/App 标志或队列 |
+### API 速查
+
+| 接口 | 类型 | 作用 | 推荐位置 |
+|---|---|---|---|
+| `MX_xxx_Init()` | CubeMX 生成函数，非 HAL API | 应用 `.ioc` 外设配置 | `main()` 初始化阶段 |
+| `HAL_TIM_Base_Start()`、`HAL_UART_Receive_IT()` 等 | HAL API | 让已配置外设进入运行态 | BSP/主初始化 |
+| `Module_Init()` | 项目自定义 BSP 接口 | 设备 ID、最少寄存器和内部状态初始化 | BSP |
+| `Module_Read/Write()` | 项目自定义 BSP 接口 | 提供原始值/工程值或控制动作 | BSP 对外 API |
+| `App_Init()/App_Task()` | 项目自定义 App 接口 | 业务状态机和周期调度 | App |
+| `HAL_UART_RxCpltCallback()` 等具体弱回调 | HAL 弱回调 | 接收中断/DMA事件并转交 | 回调适配层 |
+
+### 使用注意
+
+| 接口 | 前置条件 | 返回/阻塞 | 常见坑 |
+|---|---|---|---|
+| `MX_xxx_Init()` | 时钟和生成代码完整 | 通常 `void`；同步配置 | 误以为 Init 后外设会自动 Start |
+| `HAL_TIM_Base_Start()`、`HAL_UART_Receive_IT()` 等 | `MX_xxx_Init()` 已完成 | 多数返回 `HAL_StatusTypeDef` | 忽略返回值和启动顺序 |
+| `Module_Init()` | 底层 HAL 外设可用 | 建议返回模块状态 | 直接暴露 HAL 句柄和模块细节给 App |
+| `Module_Read/Write()` | 模块已初始化 | 明确阻塞性和错误码 | 函数名不表达单位、长度和失败方式 |
+| `App_Init()/App_Task()` | BSP 已准备 | 应尽量非阻塞 | App 直接散落 HAL 调用，失去分层 |
+| `HAL_UART_RxCpltCallback()` 等具体弱回调 | IRQ/DMA 调用链完整 | 中断上下文 | 回调直接做显示、协议和长延时 |
+
+### 典型调用顺序
+
+```text
+HAL_Init() / SystemClock_Config()
+-> MX_GPIO/DMA/外设_Init()
+-> BSP_Init() 调 HAL Start/Receive 和模块最少配置
+-> App_Init()
+-> while (1) 中 App_Task()
+-> HAL Callback 只向 BSP/App 投递事件
+```
+
+### 什么时候用哪一层？
+
+| 需求 | 推荐位置 |
+|---|---|
+| 芯片外设启动/传输 | BSP 内调用 HAL API |
+| 模块寄存器和原始数据 | BSP Driver |
+| 数据换算/业务规则 | App 或独立 Service |
+| 中断事件入口 | HAL Callback -> 轻量适配 -> 队列/标志 |
 
 ## 最小框架
 

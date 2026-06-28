@@ -100,14 +100,40 @@ UART 字节收发
 3. 另一个 USART 可做日志
 4. 不在代码中保存真实 WiFi/IP/端口示例
 
-## 常用 HAL API
+## 本模块依赖的 HAL 层
 
-| API | 用途 |
+| 模块动作 | 依赖 HAL | 说明 |
+|---|---|---|
+| 发送短 AT 命令 | `HAL_UART_Transmit()` | 阻塞发送；命令文本和行结束格式以当前 AT 固件文档为准 |
+| 接收固定长度测试数据 | `HAL_UART_Receive_IT()` | 适合最小验证，不适合复杂异步 AT 响应 |
+| 接收不定长响应/网络数据 | `HAL_UARTEx_ReceiveToIdle_DMA()` | 把 `Size` 个字节送入 ring buffer，再由解析状态机识别行和提示符 |
+| 处理接收事件 | `HAL_UARTEx_RxEventCallback()` | 回调只搬运/发布数据，不在其中等待 `OK` 或执行网络业务 |
+| 命令等待和重试超时 | `HAL_GetTick()` | 每个状态有截止时间，禁止无限等待 |
+| 控制 RST/EN | `HAL_GPIO_WritePin()` | 可选；有效电平和上电时序以模块原理图/官方文档为准 |
+| 错误恢复 | `HAL_UART_ErrorCallback()` / `HAL_UART_DMAStop()` | 记录错误、停止旧接收链、清状态后重新启动 |
+
+HAL 只负责 UART、DMA、GPIO 和时间基准。AT 命令集合、固件差异、STA/AP、TCP/UDP、透传进入/退出和业务协议属于 ESP-AT/课程层，不能由 UART HAL 自动完成。
+
+### 典型调用顺序
+
+```text
+MX_DMA_Init()
+-> MX_USARTx_UART_Init()
+-> 可选 RST/EN 上电控制
+-> HAL_UARTEx_ReceiveToIdle_DMA() 先启动接收
+-> HAL_UART_Transmit() 发送一条 AT 命令
+-> RxEventCallback 将响应送入 ring buffer
+-> 主循环状态机匹配 OK/ERROR/提示符并处理超时
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
 |---|---|
-| `HAL_UART_Transmit` | 发送 AT 命令 |
-| `HAL_UARTEx_ReceiveToIdle_DMA` | 接收不定长响应 |
-| `HAL_GetTick` | 命令超时 |
-| `HAL_GPIO_WritePin` | 可选 RST/EN 控制 |
+| 最小 AT 连通测试 | `HAL_UART_Transmit()` + 接收原始响应 |
+| 持续接收异步 AT/网络数据 | `HAL_UARTEx_ReceiveToIdle_DMA()` |
+| 命令超时/重试 | `HAL_GetTick()` 状态机 |
+| 模块硬复位 | 经原理图确认后的 `HAL_GPIO_WritePin()` |
 
 ## Bring-up 顺序
 

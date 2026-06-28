@@ -96,15 +96,41 @@ MCU 输出起始信号
 3. DWT 不需 CubeMX，但需正确 SystemCoreClock
 4. 串口/OLED仅作为结果观察
 
-## 常用 HAL API
+## 本模块依赖的 HAL 层
 
-| API | 用途 |
+> DHT11 不是 STM32 的标准 HAL 外设。HAL 只负责 GPIO 配置和电平读写；微秒计时通常使用 TIM 或 CMSIS/DWT。`DWT->CYCCNT` 不是 HAL API，而是 Cortex-M 内核调试组件寄存器。
+
+| 模块动作 | 依赖接口 | 说明 |
+|---|---|---|
+| 切换单总线输出/输入状态 | `HAL_GPIO_Init()` | 修改 `GPIO_InitTypeDef.Mode` 后重新初始化同一引脚；GPIO 时钟必须已使能 |
+| 输出起始电平 | `HAL_GPIO_WritePin()` | 只负责输出 SET/RESET，具体持续时间必须由模块手册和实测确认 |
+| 读取响应和数据位 | `HAL_GPIO_ReadPin()` | 返回当前输入状态；位宽判断仍由驱动状态机完成 |
+| 整帧超时与读取间隔 | `HAL_GetTick()` | 适合毫秒级保护，不适合判定单个位的微秒脉宽 |
+| 微秒计时 | TIM 或 `DWT->CYCCNT` | 这部分不是标准 DHT11 HAL API；DWT 属于 CMSIS/内核组件 |
+| 打印原始 5 字节/校验结果 | `HAL_UART_Transmit()` 或 `printf` | 仅用于调试，避免在严格时序窗口内打印 |
+
+HAL API 的返回值和 GPIO 模式切换要检查，但 40 bit 帧格式、位判定阈值、校验和与最小采样间隔仍以模块手册和视频实测为准。
+
+### 典型调用顺序
+
+```text
+GPIO 配置为输出
+-> HAL_GPIO_WritePin() 产生起始状态
+-> GPIO 改为输入
+-> 用 TIM/DWT 带超时测量响应和 40 bit 脉宽
+-> HAL_GPIO_ReadPin() 读取电平
+-> 校验 5 字节
+-> 主循环输出结果
+```
+
+### 什么时候用哪个接口？
+
+| 场景 | 推荐接口 |
 |---|---|
-| `HAL_GPIO_Init` | 动态切换输入/输出模式 |
-| `HAL_GPIO_WritePin` | 产生起始信号 |
-| `HAL_GPIO_ReadPin` | 读取响应和位电平 |
-| `DWT->CYCCNT` | 微秒计时 |
-| `HAL_GetTick` | 整帧超时 |
+| GPIO 方向切换 | `HAL_GPIO_Init()` |
+| 普通电平输出/读取 | `HAL_GPIO_WritePin()` / `HAL_GPIO_ReadPin()` |
+| 毫秒级整帧超时 | `HAL_GetTick()` |
+| 微秒脉宽判定 | TIM 输入捕获/计数，或经验证的 CMSIS/DWT 实现 |
 
 ## Bring-up 顺序
 

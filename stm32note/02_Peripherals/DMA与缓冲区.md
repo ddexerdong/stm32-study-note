@@ -94,14 +94,57 @@ DMA 只负责按配置搬数据，不理解帧、通道含义或缓冲区是否�
 
 ## 常用 HAL API
 
-| API / 对象 | 作用 | 常见位置 |
+### API 速查
+
+| HAL 函数 / 宏 | 作用 | 常见位置 |
 |---|---|---|
-| `HAL_UART_Receive_DMA` | UART 固定长度 DMA | 串口接收 |
-| `HAL_UARTEx_ReceiveToIdle_DMA` | UART 不定长 DMA | 协议接收 |
-| `HAL_ADC_Start_DMA` | ADC 结果搬运 | 连续采样 |
-| `__HAL_DMA_GET_COUNTER` | 读取 NDTR | 计算已接收长度 |
-| `HAL_xxx_HalfCpltCallback` | 半传输回调 | 双半区处理 |
-| `HAL_xxx_CpltCallback` | 完成回调 | 一轮结束 |
+| `HAL_DMA_Init()` | 按句柄配置 DMA 通道 | CubeMX MSP 初始化 |
+| `HAL_DMA_Start()` | 直接启动一次裸 DMA 搬运 | 特殊内存/外设搬运 |
+| `HAL_DMA_Start_IT()` | 启动裸 DMA 并开启完成/错误中断 | 自定义 DMA 驱动 |
+| `HAL_DMA_IRQHandler()` | 处理 DMA 中断并分发回调 | `stm32f1xx_it.c` DMA IRQHandler |
+| `HAL_DMA_Abort()` | 中止正在运行的 DMA | 超时恢复、模式切换 |
+| `HAL_DMA_GetState()` | 查询 DMA 当前状态 | 错误诊断、重启前 |
+| `HAL_UART_Receive_DMA()` | 由 UART HAL 配置并启动固定长度 RX DMA | 串口接收启动 |
+| `HAL_UARTEx_ReceiveToIdle_DMA()` | 接收至空闲事件或 buffer 满 | 不定长串口帧 |
+| `HAL_ADC_Start_DMA()` | 由 ADC HAL 启动转换和 DMA | ADC 连续采样 |
+| `__HAL_DMA_GET_COUNTER()` | 读取剩余传输计数 NDTR | 调试、部分接收长度计算 |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件 | 参数重点 | 返回值 / 阻塞与常见坑 |
+|---|---|---|---|
+| `HAL_DMA_Init()` | DMA 时钟已使能、通道映射正确 | `DMA_HandleTypeDef *hdma` | 返回 `HAL_StatusTypeDef`；同步配置；一般由 CubeMX/外设 MSP 调用；方向、宽度、自增配错 |
+| `HAL_DMA_Start()` | 地址、方向和通道均已配置 | 源地址、目标地址、长度 | 返回状态；非阻塞、无完成中断；新手误用裸 DMA；地址单位和数据宽度不匹配 |
+| `HAL_DMA_Start_IT()` | NVIC 和回调已配置 | 源地址、目标地址、长度 | 返回状态；非阻塞；忘记 IRQHandler；多数 UART/ADC 场景应使用外设封装 API |
+| `HAL_DMA_IRQHandler()` | DMA NVIC 已使能 | DMA 句柄 | `void`；中断上下文；IRQHandler 绑定错句柄导致外设回调不进入 |
+| `HAL_DMA_Abort()` | DMA 句柄有效 | DMA 句柄 | 返回状态；同步中止；中止后未同步外设状态，立即重启仍可能 `HAL_BUSY` |
+| `HAL_DMA_GetState()` | DMA 已初始化 | DMA 句柄 | 返回 `HAL_DMA_StateTypeDef`；非阻塞；只看 DMA 状态，不看外设 HAL 状态和错误码 |
+| `HAL_UART_Receive_DMA()` | UART RX DMA 已关联 | UART 句柄、buffer、长度 | 返回状态；非阻塞；固定长度没收满不回完成回调；buffer 不能是局部变量 |
+| `HAL_UARTEx_ReceiveToIdle_DMA()` | UART/DMA/IDLE 支持和中断链完整 | UART 句柄、buffer、容量 | 返回状态；非阻塞；`RxEventCallback` 的 Size 是本次有效长度，不是 C 字符串长度 |
+| `HAL_ADC_Start_DMA()` | ADC DMA 已关联 | ADC 句柄、`uint32_t *` buffer、长度 | 返回状态；非阻塞；Rank 顺序与数组下标不一致；Normal/Circular 选择错误 |
+| `__HAL_DMA_GET_COUNTER()` | DMA 通道正在或曾经运行 | DMA 句柄 | 返回剩余元素数；非阻塞；把剩余量当已接收量；并发读取时数值正在变化 |
+
+### 典型调用顺序
+
+```text
+CubeMX 选择外设 DMA 请求、方向、宽度、Normal/Circular
+-> MX_DMA_Init() 使能 DMA 时钟和 NVIC
+-> MX_UART/ADC/SPI_Init() 关联 DMA 句柄
+-> 定义全局或静态 buffer
+-> 调用 HAL_UART_Receive_DMA / ReceiveToIdle_DMA / HAL_ADC_Start_DMA
+-> DMA IRQHandler 调 HAL_DMA_IRQHandler()
+-> 外设 Half/Cplt/RxEvent 回调只发布数据事件
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| UART 固定长度块 | `HAL_UART_Receive_DMA()` |
+| UART 不定长帧 | `HAL_UARTEx_ReceiveToIdle_DMA()` + ring buffer/协议解析 |
+| ADC 连续多通道 | `HAL_ADC_Start_DMA()` + Circular/双半区处理 |
+| 特殊裸搬运 | 明确地址与回调模型后使用 `HAL_DMA_Start(_IT)()` |
+| 故障恢复 | 停外设 DMA API，必要时 `HAL_DMA_Abort()`，检查状态后重启 |
 
 ## 最小实验 / 最小框架
 

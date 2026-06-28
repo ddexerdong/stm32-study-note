@@ -96,14 +96,55 @@ CAN 是以“消息 ID”而不是点对点地址为中心的多节点总线。�
 
 ## 常用 HAL API
 
-| API / 对象 | 作用 | 常见位置 |
+### API 速查
+
+| HAL 函数 / 宏 | 作用 | 常见位置 |
 |---|---|---|
-| `HAL_CAN_ConfigFilter` | 配置过滤器 | 启动前 |
-| `HAL_CAN_Start` | 启动 CAN 控制器 | 初始化后 |
-| `HAL_CAN_ActivateNotification` | 开启 FIFO/错误通知 | 启动后 |
-| `HAL_CAN_AddTxMessage` | 把帧放入发送邮箱 | 发送 |
-| `HAL_CAN_GetRxMessage` | 从 FIFO 取帧 | 接收回调 |
-| `HAL_CAN_GetError` | 读取错误状态 | 故障诊断 |
+| `HAL_CAN_ConfigFilter()` | 配置哪些 ID 进入哪个 RX FIFO | CAN 启动前 |
+| `HAL_CAN_Start()` | 让 CAN 控制器进入工作状态 | 过滤器配置后 |
+| `HAL_CAN_Stop()` | 停止 CAN 控制器 | 重配置、停机 |
+| `HAL_CAN_AddTxMessage()` | 把一帧放入可用发送邮箱 | 业务发送函数 |
+| `HAL_CAN_GetRxMessage()` | 从指定 FIFO 取出一帧 | RX FIFO 回调 |
+| `HAL_CAN_ActivateNotification()` | 开启 RX FIFO/错误等通知 | Start 后 |
+| `HAL_CAN_RxFifo0MsgPendingCallback()` | FIFO0 有待取消息时进入用户回调 | 用户代码 |
+| `HAL_CAN_GetError()` | 读取 CAN HAL/协议错误状态 | 发送失败、Bus-Off 诊断 |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件 | 参数重点 | 返回值 / 阻塞与常见坑 |
+|---|---|---|---|
+| `HAL_CAN_ConfigFilter()` | 过滤器结构体与 bank 分配已设计 | ID/Mask、模式、FIFO、激活状态 | 返回 `HAL_StatusTypeDef`；同步配置；过滤器过窄导致“总线有帧但软件收不到” |
+| `HAL_CAN_Start()` | 位时序、GPIO、收发器准备好 | CAN 句柄 | 返回状态；非阻塞；CubeMX 初始化后忘记 Start；位时序双方不一致 |
+| `HAL_CAN_Stop()` | CAN 已启动 | CAN 句柄 | 返回状态；同步停止；运行中直接改过滤器/位时序而未按状态机停机 |
+| `HAL_CAN_AddTxMessage()` | CAN 已 Start，总线可用 | Tx Header、最多 8 字节数据、邮箱输出指针 | 返回状态；非阻塞入邮箱；返回 `HAL_OK` 只表示成功排队，不保证已获 ACK 或发到总线 |
+| `HAL_CAN_GetRxMessage()` | FIFO 中确有消息 | FIFO、Rx Header、数据数组 | 返回状态；同步取出；回调里不取帧导致 FIFO 堆积；FIFO 参数不匹配 |
+| `HAL_CAN_ActivateNotification()` | CAN 与 NVIC 已配置 | 通知位掩码 | 返回状态；非阻塞；只开 NVIC 不激活 HAL 通知；通知类型与回调不匹配 |
+| `HAL_CAN_RxFifo0MsgPendingCallback()` | 已激活 FIFO0 pending 通知 | CAN 句柄 | `void`；中断上下文；忘记调用 `HAL_CAN_GetRxMessage()`；回调中长时间处理 |
+| `HAL_CAN_GetError()` | CAN 句柄有效 | CAN 句柄 | 返回错误位掩码；非阻塞；只重发不查 ACK、收发器、终端和错误计数 |
+
+### 典型调用顺序
+
+```text
+MX_CAN_Init() 配置位时序
+-> HAL_CAN_ConfigFilter()
+-> HAL_CAN_Start()
+-> HAL_CAN_ActivateNotification()
+-> HAL_CAN_AddTxMessage() 放入发送邮箱
+-> HAL_CAN_RxFifo0MsgPendingCallback()
+-> HAL_CAN_GetRxMessage() 取出帧并发布事件
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| 启动接收前设置可见 ID | `HAL_CAN_ConfigFilter()`，调试初期可先放宽 |
+| 发送一帧 | `HAL_CAN_AddTxMessage()`，并另外监控错误/邮箱状态 |
+| 中断接收 FIFO0 | `ActivateNotification()` + `RxFifo0MsgPendingCallback()` + `GetRxMessage()` |
+| 修改关键配置 | `HAL_CAN_Stop()` 后按 HAL 状态要求重配再 Start |
+| 收不到/发不出 | 查过滤器、位时序、收发器、终端、ACK，再读 `HAL_CAN_GetError()` |
+
+位时序、过滤器值和消息 ID 以实际 CubeMX 配置、节点协议和总线实测为准。
 
 ## 最小实验 / 最小框架
 

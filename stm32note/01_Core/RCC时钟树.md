@@ -82,7 +82,7 @@ HSI/HSE -> PLL -> SYSCLK -> AHB -> APB1/APB2 -> 外设时钟
 ## STM32F103 / HAL 中的实现方式
 
 - F103 常见工程使用 HSE 经 PLL 得到 72 MHz SYSCLK，但外部晶振和分频必须以板卡为准。
-- GPIO、AFIO、USART、ADC、TIM 等外设使用前需要 RCC 使能相应总线时钟，CubeMX 通常生成 `__HAL_RCC_xxx_CLK_ENABLE()`。
+- GPIO、AFIO、USART、ADC、TIM 等外设使用前需要 RCC 使能相应总线时钟，CubeMX 通常生成与实例匹配的宏，例如 `__HAL_RCC_GPIOA_CLK_ENABLE()`。
 - APB 分频不为 1 时，定时器内核时钟可能是对应 PCLK 的 2 倍；详细规则以 RM0008 为准。
 
 ## CubeMX 配置要点
@@ -94,13 +94,47 @@ HSI/HSE -> PLL -> SYSCLK -> AHB -> APB1/APB2 -> 外设时钟
 
 ## 常用 HAL API
 
-| API / 对象 | 作用 | 常见位置 |
-|---|---|---|
-| `HAL_RCC_OscConfig` | 配置振荡器和 PLL | SystemClock_Config |
-| `HAL_RCC_ClockConfig` | 选择 SYSCLK 并设置总线分频 | SystemClock_Config |
-| `HAL_RCC_GetSysClockFreq` | 获取 SYSCLK | 调试打印 |
-| `HAL_RCC_GetPCLK1Freq` | 获取 PCLK1 | USART/TIM 计算 |
-| `SystemCoreClockUpdate` | 更新内核时钟变量 | 时钟修改后 |
+### API 速查
+
+| 函数 / 宏 | 类型 | 解决什么问题 | 常见调用位置 |
+|---|---|---|---|
+| `HAL_RCC_OscConfig()` | HAL API | 配置 HSI/HSE/PLL | `SystemClock_Config()` |
+| `HAL_RCC_ClockConfig()` | HAL API | 选择 SYSCLK 并设置 AHB/APB 分频和 Flash 延时 | OscConfig 成功后 |
+| `HAL_RCC_GetSysClockFreq()` | HAL API | 计算当前 SYSCLK | 调试/诊断 |
+| `HAL_RCC_GetPCLK1Freq()` / `HAL_RCC_GetPCLK2Freq()` | HAL API | 获取 APB 外设总线时钟 | USART/CAN/ADC/TIM 诊断 |
+| `__HAL_RCC_GPIOA_CLK_ENABLE()` 等实例宏 | HAL 宏 | 给具体 GPIO/外设打开总线时钟 | MSP/`MX_xxx_Init()` |
+| `SystemCoreClockUpdate()` | CMSIS 系统函数，非 HAL API | 更新 `SystemCoreClock` 变量 | 手工改 RCC 后 |
+
+### 使用注意
+
+| 函数 / 宏 | 前置条件 | 返回值 / 阻塞 | 常见坑 |
+|---|---|---|---|
+| `HAL_RCC_OscConfig()` | 振荡源和 PLL 参数符合芯片/板卡 | 返回 `HAL_StatusTypeDef`；同步等待就绪 | HSE 类型、PLL 倍频照抄其它板卡 |
+| `HAL_RCC_ClockConfig()` | 目标频率和 Flash Latency 匹配 | 返回状态；同步切换 | Flash 延时错误；APB 分频影响 TIM 时钟 |
+| `HAL_RCC_GetSysClockFreq()` | RCC 已配置 | 返回 Hz；非阻塞 | 把 SYSCLK 直接当所有外设时钟 |
+| `HAL_RCC_GetPCLK1Freq()` / `HAL_RCC_GetPCLK2Freq()` | RCC 已配置 | 返回 Hz；非阻塞 | 忽略 APB 分频时 TIM 时钟可能 x2 |
+| `__HAL_RCC_GPIOA_CLK_ENABLE()` 等实例宏 | 宏与实际外设实例匹配 | 宏；非阻塞 | 未开时钟就访问外设；把宏写在业务循环反复调用 |
+| `SystemCoreClockUpdate()` | 时钟切换完成 | `void`；同步计算 | 变量与真实 HCLK 不一致导致 DWT/延时换算错 |
+
+### 典型调用顺序
+
+```text
+确认开发板 HSE/HSI 条件
+-> HAL_RCC_OscConfig()
+-> HAL_RCC_ClockConfig()
+-> 更新/核对 SystemCoreClock
+-> MX_xxx_Init() 中使能外设时钟
+-> GetSysClock/PCLK 检查实际频率
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐接口 |
+|---|---|
+| 配置振荡器和 PLL | `HAL_RCC_OscConfig()` |
+| 配置 SYSCLK/AHB/APB | `HAL_RCC_ClockConfig()` |
+| 调试总线频率 | `HAL_RCC_GetSysClockFreq()` / `GetPCLKxFreq()` |
+| 使能某外设时钟 | 使用与外设实例匹配的时钟使能宏，通常由 CubeMX 生成 |
 
 ## 最小实验 / 最小框架
 

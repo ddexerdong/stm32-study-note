@@ -94,14 +94,40 @@ BMP280 与 SPL06 的寄存器、校准参数位宽和补偿公式不能互相套
 3. 串口打印 ID、校准参数和 raw
 4. 先不启用复杂滤波
 
-## 常用 HAL API
+## 本模块依赖的 HAL 层
 
-| API | 用途 |
+| 模块动作 | 依赖 HAL | 说明 |
+|---|---|---|
+| I2C 地址探测 | `HAL_I2C_IsDeviceReady()` | 适用于确认模块当前接口和地址是否 ACK |
+| I2C 读 ID、校准参数和原始值 | `HAL_I2C_Mem_Read()` | 寄存器地址、长度和字节序分别按 BMP280/SPL06 手册确认 |
+| I2C 写模式/过采样配置 | `HAL_I2C_Mem_Write()` | 两款芯片寄存器定义不可混用 |
+| SPI 选择器件 | `HAL_GPIO_WritePin()` | 手动控制 CS；默认电平和引脚以原理图为准 |
+| SPI 命令和数据交换 | `HAL_SPI_Transmit()` / `HAL_SPI_TransmitReceive()` | 读写位、地址格式和 dummy 要按具体芯片协议 |
+| 测量等待/超时 | `HAL_GetTick()` | 用状态机等待，不用无限阻塞 |
+
+HAL 只负责 I2C/SPI 字节传输。校准参数解释、定点/浮点补偿公式、单位和溢出处理属于具体气压计数据手册，BMP280 与 SPL06 不能共用一套未经核对的公式。
+
+### 典型调用顺序
+
+```text
+确认模块采用 I2C 还是 SPI
+-> 初始化对应 HAL 外设
+-> 读取并核对设备 ID
+-> 读取全部校准参数并保存
+-> 写最少测量配置
+-> 读取原始温度/气压
+-> 按对应手册补偿
+-> 输出 raw、中间量和最终单位
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
 |---|---|
-| `HAL_I2C_Mem_Read/Write` | I2C 寄存器访问 |
-| `HAL_SPI_TransmitReceive` | SPI 寄存器访问 |
-| `HAL_GPIO_WritePin` | SPI CS |
-| `HAL_GetTick` | 测量等待/超时 |
+| I2C 寄存器型访问 | `HAL_I2C_Mem_Read()`、`HAL_I2C_Mem_Write()` |
+| SPI 发命令/地址 | 手动 CS + `HAL_SPI_Transmit()` |
+| SPI 边发边收 | `HAL_SPI_TransmitReceive()` |
+| 等待数据就绪 | 状态寄存器 + `HAL_GetTick()` 超时 |
 
 ## Bring-up 顺序
 

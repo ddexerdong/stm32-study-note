@@ -38,7 +38,7 @@ tags:
 ## HAL 回调链
 
 ```text
-硬件事件 -> IRQHandler -> HAL_xxx_IRQHandler -> HAL 回调 -> 设置标志位
+硬件事件 -> IRQHandler -> 对应 HAL IRQHandler（如 HAL_GPIO_EXTI_IRQHandler）-> HAL 回调 -> 设置标志位
 ```
 
 HAL 回调函数是驱动在统一 IRQHandler 中完成状态处理后留给用户的扩展入口。回调里应先判断外设实例或 Pin，再记录事件并尽快返回。
@@ -97,14 +97,51 @@ HAL 回调函数是驱动在统一 IRQHandler 中完成状态处理后留给用�
 
 ## 常用 HAL API
 
-| API / 对象 | 作用 | 常见位置 |
+### API 速查
+
+| HAL 函数 / 宏 | 作用 | 常见位置 |
 |---|---|---|
-| `HAL_NVIC_SetPriority` | 设置 NVIC 优先级 | 初始化 |
-| `HAL_NVIC_EnableIRQ` | 使能 IRQ | 初始化 |
-| `HAL_GPIO_EXTI_IRQHandler` | HAL EXTI 处理入口 | IRQHandler |
-| `HAL_GPIO_EXTI_Callback` | 用户回调 | 业务事件入口 |
-| `HAL_GetTick` | 读取毫秒 tick | 超时/消抖 |
-| `HAL_Delay` | 阻塞延时 | 非 ISR 场景 |
+| `HAL_NVIC_SetPriority()` | 设置某个 IRQ 的抢占/响应优先级 | 外设 MSP 或 CubeMX 生成初始化 |
+| `HAL_NVIC_EnableIRQ()` | 使能指定 IRQ | 初始化阶段 |
+| `HAL_NVIC_DisableIRQ()` | 临时屏蔽指定 IRQ | 临界维护、停机流程 |
+| `HAL_GPIO_EXTI_IRQHandler()` | 清理并分发 GPIO EXTI 中断 | `stm32f1xx_it.c` 对应 IRQHandler |
+| `HAL_GPIO_EXTI_Callback()` | 用户处理 EXTI 事件的弱函数入口 | 用户代码 |
+| `HAL_GetTick()` | 读取 HAL tick 计数 | 超时、消抖、非阻塞节拍 |
+| `HAL_Delay()` | 基于 HAL tick 阻塞等待 | 初始化等待、简单实验 |
+| `HAL_IncTick()` | 递增 HAL 内部 tick | 默认由 SysTick/HAL 时基 ISR 调用 |
+
+### 使用注意
+
+| HAL 函数 / 宏 | 前置条件 | 参数重点 | 返回值 / 阻塞与常见坑 |
+|---|---|---|---|
+| `HAL_NVIC_SetPriority()` | 优先级分组已确定 | `IRQn`、`PreemptPriority`、`SubPriority` | `void`；同步配置；数值越小优先级越高；不要随意让所有中断同级 |
+| `HAL_NVIC_EnableIRQ()` | 外设中断源和 IRQn 匹配 | `IRQn_Type` | `void`；同步配置；外设已开中断但 NVIC 未开，IRQHandler 不会执行 |
+| `HAL_NVIC_DisableIRQ()` | 清楚屏蔽期间事件处理策略 | `IRQn_Type` | `void`；同步配置；屏蔽后忘记恢复；屏蔽 IRQ 不等于清除外设标志 |
+| `HAL_GPIO_EXTI_IRQHandler()` | EXTI 边沿、线路和 NVIC 已配置 | `GPIO_Pin` | `void`；中断上下文；不应绕过它直接只写业务；共享 IRQ 中要处理正确 Pin |
+| `HAL_GPIO_EXTI_Callback()` | HAL IRQHandler 调用链完整 | `GPIO_Pin` | `void`；中断上下文；只置标志/记时间，避免 `printf`、长循环和 `HAL_Delay()` |
+| `HAL_GetTick()` | HAL tick 正常递增 | 无 | 返回 `uint32_t`；非阻塞；要用无符号差值处理回绕，不比较“永远小于某绝对值” |
+| `HAL_Delay()` | tick 中断能运行 | 毫秒延时量 | `void`；阻塞；中断中长时间调用可能因 tick 无法推进而卡死或拖延其它 IRQ |
+| `HAL_IncTick()` | 时基已配置 | 无 | `void`；中断上下文；通常不由业务手动调用，否则软件时间会失真 |
+
+### 典型调用顺序
+
+```text
+CubeMX 配置 GPIO_EXTI 和边沿
+-> 设置 IRQ 优先级并 HAL_NVIC_EnableIRQ()
+-> EXTI IRQHandler 进入 HAL_GPIO_EXTI_IRQHandler()
+-> HAL_GPIO_EXTI_Callback() 记录事件
+-> 主循环用 HAL_GetTick() 做消抖/超时并处理业务
+```
+
+### 什么时候用哪个函数？
+
+| 场景 | 推荐函数 |
+|---|---|
+| 简单毫秒阻塞等待 | `HAL_Delay()`，仅用于允许阻塞的线程/主循环 |
+| 非阻塞超时、按键消抖 | `HAL_GetTick()` + 无符号时间差 |
+| GPIO 边沿响应 | `HAL_GPIO_EXTI_IRQHandler()` + `HAL_GPIO_EXTI_Callback()` |
+| 临时关闭一个 IRQ | `HAL_NVIC_DisableIRQ()`，完成后按设计恢复 |
+| 周期性精确定时任务 | TIM 中断，不依赖主循环反复 `HAL_Delay()` |
 
 ## 最小实验 / 最小框架
 
