@@ -30,11 +30,13 @@ tags:
 
 ### 周期计时
 
-DWT 是 Cortex-M 调试组件，`CYCCNT` 可记录 CPU 周期数。已知 `SystemCoreClock` 后，可以把周期差换算成时间。
+DWT 是 Cortex-M 调试组件，`CYCCNT` 可记录 CPU 周期数。已知 `SystemCoreClock` 后，可以把周期差换算成时间。换算时避免用 32 位整数直接计算 `cycles * 1000000`，更稳妥的工程写法是使用 `uint64_t` 中间值。
 
 ```text
-time_us = cycles * 1000000 / SystemCoreClock
+time_us = (uint64_t)cycles * 1000000ULL / SystemCoreClock
 ```
+
+也可把换算理解为 `cycles / (SystemCoreClock / 1000000)`，但如果主频不是 1 MHz 的整数倍，先计算 `SystemCoreClock / 1000000U` 会产生截断误差。STM32F103 常见的 72 MHz 场景下该误差不明显，但通用代码仍应保留 64 位中间值的写法。
 
 ### 工程用途
 
@@ -48,6 +50,7 @@ time_us = cycles * 1000000 / SystemCoreClock
 ### 使用边界
 
 - DWT 依赖内核和调试相关寄存器配置。
+- 不是所有 Cortex-M 内核都有可用的 DWT `CYCCNT`；Cortex-M0/M0+ 通常没有 DWT 周期计数器。STM32F103 使用 Cortex-M3，具备相关能力，但仍需确认调试配置是否允许计数。
 - 微秒忙等会占用 CPU，不适合长时间等待。
 - 系统时钟变化后必须更新换算依据。
 - 单步调试会干扰被测时间，应使用断点或连续运行测量。
@@ -149,13 +152,23 @@ static uint32_t DWT_GetCycles(void)
 
 static void DWT_Delay_us(uint32_t us)
 {
-    uint32_t cycles_per_us = SystemCoreClock / 1000000U;
-    uint32_t wait_cycles = cycles_per_us * us;
-    uint32_t start = DWT_GetCycles();
+    uint64_t wait_cycles_64;
+    uint32_t wait_cycles;
+    uint32_t start;
 
-    while ((uint32_t)(DWT_GetCycles() - start) < wait_cycles)
+    wait_cycles_64 = ((uint64_t)SystemCoreClock * (uint64_t)us) / 1000000ULL;
+
+    if (wait_cycles_64 > 0xFFFFFFFFULL)
     {
-        /* 短时间忙等；不要用于长延时。 */
+        return;
+    }
+
+    wait_cycles = (uint32_t)wait_cycles_64;
+    start = DWT_GetCycles();
+
+    while ((DWT_GetCycles() - start) < wait_cycles)
+    {
+        __NOP();
     }
 }
 
@@ -163,14 +176,16 @@ static uint32_t Measure_TargetCycles(void)
 {
     uint32_t start = DWT_GetCycles();
     Target_Function();
-    return (uint32_t)(DWT_GetCycles() - start);
+    return DWT_GetCycles() - start;
 }
 
 /* main() 中 SystemClock_Config() 完成后调用。 */
 DWT_Delay_Init();
 uint32_t cycles = Measure_TargetCycles();
-float time_us = (float)cycles * 1000000.0f / (float)SystemCoreClock;
+uint64_t time_us = (uint64_t)cycles * 1000000ULL / SystemCoreClock;
 ```
+
+`__NOP()` 是 CMSIS 内核指令，不是 HAL API；它避免循环体完全为空，也便于调试时观察。DWT 忙等只适合短延时；超出 32 位周期计数范围时，应改用 TIM 或任务调度。
 
 `SystemCoreClock` 必须与真实 HCLK 一致。DWT 支持情况、低功耗行为和中断对测量的影响以实际 Cortex-M 内核与调试配置为准。
 
