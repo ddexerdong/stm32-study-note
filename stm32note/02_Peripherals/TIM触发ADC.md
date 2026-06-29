@@ -54,6 +54,17 @@ tags:
 -> ADC 按硬件节拍采样
 ```
 
+#### TIM -> ADC -> DMA 触发链路图
+
+```mermaid
+flowchart LR
+    A[TIM 计数到 Update Event] --> B[TRGO 输出触发]
+    B --> C[ADC 外部触发启动转换]
+    C --> D[DMA 搬运采样结果]
+    D --> E[Half / Complete 回调]
+    E --> F[应用层处理数据]
+```
+
 ### 工程意义
 
 适合固定频率采样、滤波、波形采集和控制环。与 `HAL_Delay()` 轮询相比，采样间隔更稳定，也更容易配合 [[DMA与缓冲区]]。
@@ -126,6 +137,7 @@ MX_DMA_Init()
 ## 最小实验 / 最小框架
 
 > 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
+> 验证状态：未上板验证，需按 CubeMX 变量名、开发板原理图和课程源码核对。
 
 ```c
 static uint32_t adc_dma_buffer[ADC_CHANNEL_COUNT];

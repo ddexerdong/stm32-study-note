@@ -55,6 +55,19 @@ tags:
 HSI/HSE -> PLL -> SYSCLK -> AHB -> APB1/APB2 -> 外设时钟
 ```
 
+#### 时钟树简化框图
+
+```mermaid
+flowchart LR
+    A[HSI / HSE] --> B[PLL 与时钟选择]
+    B --> C[SYSCLK]
+    C --> D[AHB / HCLK]
+    D --> E[APB1 / PCLK1]
+    D --> F[APB2 / PCLK2]
+    E --> G[TIM / USART / I2C 等]
+    F --> H[GPIO / ADC / SPI 等]
+```
+
 外设寄存器在初始化前通常需要先使能对应 RCC 时钟。HAL/CubeMX 会生成时钟使能代码，但调试时仍要知道外设挂在哪条总线上。
 
 ### TIM 时钟提醒
@@ -126,6 +139,7 @@ HSI/HSE -> PLL -> SYSCLK -> AHB -> APB1/APB2 -> 外设时钟
 ## 最小实验 / 最小框架
 
 > 代码性质：可直接移植的最小实验框架，变量名需按 CubeMX 实际生成结果调整。
+> 验证状态：未上板验证，需按 CubeMX 变量名、开发板原理图和课程源码核对。
 
 ```c
 typedef struct

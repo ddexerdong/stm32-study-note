@@ -137,6 +137,7 @@ GPIO 是芯片和外部电路的边界。代码里的 SET/RESET 必须翻译成�
 ### 输出控制
 
 > 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
+> 验证状态：未上板验证，需按 CubeMX 变量名、开发板原理图和课程源码核对。
 
 ```c
 static void Buzzer_Set(uint8_t enabled)
@@ -149,6 +150,7 @@ static void Buzzer_Set(uint8_t enabled)
 ### 输入轮询
 
 > 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
+> 验证状态：未上板验证，需按 CubeMX 变量名、开发板原理图和课程源码核对。
 
 ```c
 static uint8_t Key_IsPressed(void)
@@ -182,6 +184,7 @@ while (1)
 ### EXTI 事件
 
 > 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
+> 验证状态：未上板验证，需按 CubeMX 变量名、开发板原理图和课程源码核对。
 
 ```c
 static volatile uint8_t key_exti_event;

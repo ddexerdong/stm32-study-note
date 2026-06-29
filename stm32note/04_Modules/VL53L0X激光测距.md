@@ -134,6 +134,7 @@ HAL 只承担 I2C/GPIO 适配。初始化表、测距模式、数据就绪状态
 ## 最小驱动框架
 
 > 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
+> 验证状态：未上板验证，需按 CubeMX 变量名、开发板原理图和课程源码核对。
 
 ```c
 static uint8_t VL53L0X_InitDevice(VL53L0X_Device_t *device)

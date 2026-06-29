@@ -57,6 +57,21 @@ STM32 可以理解为：Cortex-M 内核 + Flash/SRAM + 时钟复位系统 + GPIO
 -> 主循环
 ```
 
+#### 启动流程图
+
+```mermaid
+flowchart TD
+    A[上电或复位] --> B[读取向量表]
+    B --> C[进入 Reset_Handler]
+    C --> D[SystemInit]
+    D --> E[初始化 C 运行环境]
+    E --> F[进入 main]
+    F --> G[HAL_Init]
+    G --> H[SystemClock_Config]
+    H --> I[MX_xxx_Init]
+    I --> J[while 主循环]
+```
+
 ### 三个容易混淆的文件
 
 | 对象 | 作用 |
@@ -138,6 +153,7 @@ MCU 上电后不会直接“运行 main”。内核先从固定位置取得栈�
 ## 启动顺序骨架
 
 > 代码性质：示例框架，用于理解调用顺序，不能保证直接编译。
+> 验证状态：未上板验证，需按 CubeMX 变量名、开发板原理图和课程源码核对。
 
 ```c
 int main(void)
